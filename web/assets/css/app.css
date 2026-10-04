@@ -393,3 +393,30 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; }
 .col-editor .col-center { text-align: center; }
 .col-editor .btn-small { padding: 2px 7px; margin-right: 3px; }
 .col-editor .col-list > .btn { align-self: flex-start; margin-top: 6px; }
+
+/* Tasarımcı: menü / araç çubuğu öğeleri ve sekmeler */
+.dsurface .wf-tsitem, .dsurface .wf-tab, .dsurface .wf-tabhdr, .dsurface .wf-tsdrop, .dsurface .d-typehere, .dsurface .d-ctxedit { pointer-events: auto !important; }
+.dsurface .wf-tsitem input, .dsurface .wf-tsitem select { pointer-events: none; }
+.dsurface .wf-tsmenu.open > .wf-tsdrop { display: flex; }
+.d-typehere { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; margin: 1px 2px; border: 1px dashed #8fa3b8; color: #5f7287;
+  font-style: italic; background: rgba(255,255,255,.75); min-width: 84px; cursor: text; font-size: 9pt; box-sizing: border-box; white-space: nowrap; }
+.wf-tsdrop > .d-typehere { margin: 2px 2px 1px 26px; }
+.d-typehere.editing { cursor: text; border-style: solid; border-color: #0078d7; background: #fff; }
+.d-typehere-more { margin-left: auto; font-style: normal; cursor: pointer; padding: 0 2px; }
+.d-typehere-input { border: none; outline: none; font: 9pt "Segoe UI", sans-serif; width: 130px; background: #fff; padding: 1px 0; }
+.d-addmenu { position: fixed; z-index: 10000; background: #fff; border: 1px solid #c8c8c8; box-shadow: 0 6px 16px rgba(0,0,0,.18); padding: 3px 0; font-size: 12px; border-radius: 4px; }
+.d-addmenu-item { padding: 5px 14px; cursor: pointer; white-space: nowrap; }
+.d-addmenu-item:hover { background: #e8f1fb; }
+.d-ctxedit { position: absolute; left: 10px; top: 6px; z-index: 1000; font-size: 9pt; }
+.d-ctxedit-title { display: inline-block; background: #e8e8e8; border: 1px solid #b8b8b8; border-bottom: none; padding: 1px 8px; color: #333; }
+.d-ctxedit .d-ctxdrop { display: flex !important; position: static; }
+.dsurface .wf-tabcontrol.d-outline { outline: 1px dashed #999; }
+.col-editor .tsi-row { grid-template-columns: 1.3fr 1fr 1.4fr 70px; }
+.col-editor .tsi-add { display: flex; gap: 6px; margin-top: 6px; }
+.col-editor .tsi-add select { width: auto; }
+.mask-editor .mask-list { border: 1px solid var(--border, #ddd); border-radius: 6px; max-height: 260px; overflow: auto; margin-bottom: 10px; }
+.mask-editor .mask-row { display: grid; grid-template-columns: 1.3fr 1.4fr 1.4fr; gap: 8px; padding: 5px 10px; cursor: pointer; font-size: 13px; }
+.mask-editor .mask-row:hover { background: #f1f4fb; }
+.mask-editor .mask-row.selected { background: #e2e9fb; }
+.mask-editor label { display: flex; gap: 8px; align-items: center; }
+.mask-editor .mask-preview { margin-top: 8px; font-family: Consolas, monospace; }

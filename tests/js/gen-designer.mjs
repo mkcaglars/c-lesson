@@ -13,11 +13,18 @@ const form = {
   },
   events: { Load: 'Form1_Load', FormClosing: 'Form1_FormClosing' },
   controls: [],
-  components: [{ type: 'Timer', name: 'timer1', props: { Interval: 250, TimerEnabled: true }, events: { Tick: 'timer1_Tick' } }],
+  components: [
+    { type: 'Timer', name: 'timer1', props: { Interval: 250, TimerEnabled: true }, events: { Tick: 'timer1_Tick' } },
+    { type: 'ToolTip', name: 'toolTip1', props: { IsBalloon: true }, events: {} },
+    { type: 'ErrorProvider', name: 'errorProvider1', props: {}, events: {} },
+    { type: 'OpenFileDialog', name: 'openFileDialog1', props: { FileName: 'openFileDialog1', Filter: 'Resimler|*.png;*.jpg' }, events: {} },
+    { type: 'SaveFileDialog', name: 'saveFileDialog1', props: { DefaultExt: 'txt' }, events: {} },
+    { type: 'ContextMenuStrip', name: 'contextMenuStrip1', props: { StripItems: [{ type: 'ToolStripMenuItem', name: 'kopyalaToolStripMenuItem', props: { Text: 'Kopyala', ShortcutKeys: 'Ctrl+C' }, events: { Click: 'kopyala_Click' } }] }, events: {} },
+  ],
 };
 let y = 0;
 for (const [type, info] of Object.entries(CONTROLS)) {
-  if (info.component) continue;
+  if (info.component || info.item || info.hidden) continue;
   const name = info.prefix + '1';
   const c = { type, name, props: { ...info.defaults(name), Location: [10, (y += 30)], Size: info.size, TabIndex: y }, events: { [info.defaultEvent]: `${name}_${info.defaultEvent}` } };
   if (info.container) c.controls = [];
@@ -36,6 +43,28 @@ Object.assign(find('dateTimePicker1').props, { Format: 'Short' });
 Object.assign(find('pictureBox1').props, { ImageLocation: 'https://example.com/a.png', SizeMode: 'Zoom', BorderStyle: 'Fixed3D' });
 Object.assign(find('checkBox1').props, { Checked: true, BackColor: 'SystemColors.Control' });
 Object.assign(find('button1').props, { FlatStyle: 'Flat', Enabled: false, Tag: 'etiket' });
+find('tabControl1').controls = [
+  { type: 'TabPage', name: 'tabPage1', props: { Text: 'Genel', UseVisualStyleBackColor: true, TabIndex: 0 }, events: {}, controls: [{ type: 'Label', name: 'label2', props: { Text: 'sekmede', Location: [3, 3], Size: [50, 15] }, events: {} }] },
+  { type: 'TabPage', name: 'tabPage2', props: { Text: 'Ayrıntı', UseVisualStyleBackColor: true, TabIndex: 1 }, events: {}, controls: [] },
+];
+Object.assign(find('tabControl1').props, { SelectedIndex: 1 });
+Object.assign(find('maskedTextBox1').props, { Mask: '(999) 000-0000', 'ToolTip:toolTip1': 'Telefon numarası', ContextMenuStrip: 'contextMenuStrip1' });
+Object.assign(find('menuStrip1').props, {
+  StripItems: [
+    { type: 'ToolStripMenuItem', name: 'dosyaToolStripMenuItem', props: { Text: '&Dosya', StripItems: [
+      { type: 'ToolStripMenuItem', name: 'açToolStripMenuItem', props: { Text: 'Aç', ShortcutKeys: 'Ctrl+O' }, events: { Click: 'aç_Click' } },
+      { type: 'ToolStripSeparator', name: 'toolStripSeparator1', props: {}, events: {} },
+      { type: 'ToolStripMenuItem', name: 'çıkışToolStripMenuItem', props: { Text: 'Çıkış' }, events: { Click: 'çıkış_Click' } },
+    ] }, events: {} },
+    { type: 'ToolStripMenuItem', name: 'yardımToolStripMenuItem', props: { Text: 'Yardım', Checked: true }, events: {} },
+  ],
+});
+form.props.MainMenuStrip = 'menuStrip1';
+Object.assign(find('toolStrip1').props, { GripStyle: 'Hidden', StripItems: [
+  { type: 'ToolStripButton', name: 'toolStripButton1', props: { Text: 'Yeni', DisplayStyle: 'Text' }, events: { Click: 'yeni_Click' } },
+  { type: 'ToolStripComboBox', name: 'toolStripComboBox1', props: { Items: ['a', 'b'] }, events: {} },
+] });
+Object.assign(find('statusStrip1').props, { StripItems: [{ type: 'ToolStripStatusLabel', name: 'toolStripStatusLabel1', props: { Text: 'Hazır', Spring: true }, events: {} }] });
 Object.assign(find('dataGridView1').props, {
   GridSelectionMode: 'FullRowSelect', AutoSizeColumnsMode: 'Fill', AllowUserToAddRows: false, BackgroundColor: 'White',
   Columns: [
@@ -56,8 +85,15 @@ const collect = (list) => {
     if (c.controls) collect(c.controls);
   }
 };
+const collectItems = (owner) => {
+  for (const it of owner.props?.StripItems || []) {
+    for (const [evt, h] of Object.entries(it.events || {})) handlers.push(`        private void ${h}(object sender, ${sig[evt] || 'EventArgs'} e) { Olaylar.Add("${h}"); }`);
+    collectItems(it);
+  }
+};
 collect(form.controls);
 collect(form.components);
+for (const c of [...form.controls, ...form.components]) collectItems(c);
 for (const [evt, h] of Object.entries(form.events)) handlers.push(`        private void ${h}(object sender, ${sig[evt] || 'EventArgs'} e) { Olaylar.Add("${h}"); }`);
 
 const code = formCs('TumKontroller', 'Form1').replace('            InitializeComponent();\n        }\n',

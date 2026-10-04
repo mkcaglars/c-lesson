@@ -311,7 +311,6 @@
 .wf-fd-pick { min-width: 140px !important; }
 
 /* ---------------- MaskedTextBox / TabControl / ErrorProvider ---------------- */
-.wf-masked input { font-family: Consolas, "Courier New", monospace; letter-spacing: 0.5px; }
 .wf-tabcontrol { background: transparent; overflow: visible; }
 .wf-tabhdr { position: absolute; left: 2px; top: 0; right: 0; display: flex; align-items: flex-end; z-index: 1; height: 21px; }
 .wf-tab { padding: 2px 8px 3px; border: 1px solid #d9d9d9; border-bottom: none; background: #f0f0f0; margin-right: -1px; cursor: default; white-space: nowrap; height: calc(100% - 2px); box-sizing: border-box; display: flex; align-items: center; user-select: none; }
@@ -323,3 +322,5 @@
 .wf-erricon { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: #e81123; color: #fff; font: bold 11px/14px "Segoe UI", sans-serif; text-align: center; z-index: 50; cursor: default; box-shadow: 0 0 0 1px #fff; }
 .wf-erricon.wf-blink { animation: wf-blink 0.25s steps(1) 6; }
 @keyframes wf-blink { 50% { visibility: hidden; } }
+/* Açık menü diğer kontrollerin üstünde görünsün */
+.wf-strip:has(.wf-tsmenu.open) { z-index: 100000 !important; }

@@ -1,8 +1,16 @@
 // Özellikler penceresi (Properties / Events).
-import { PROPS, CONTROLS, FORM_INFO, COLOR_NAMES, SYSTEM_COLORS, EVENT_DESC, DEFAULT_FONT, COLUMN_TYPES, colorToCss, codeName, propDefault, eventTypes } from './catalog.js';
+import { PROPS, CONTROLS, FORM_INFO, COLOR_NAMES, SYSTEM_COLORS, EVENT_DESC, DEFAULT_FONT, COLUMN_TYPES, STRIP_ITEMS, STRIP_ADDABLE, colorToCss, codeName, propDefault, eventTypes } from './catalog.js';
 import { h, modal, toast } from './ui.js';
 import { isIdentifier } from './templates.js';
-import { FORM } from './designer.js';
+import { FORM, maskPreview } from './designer.js';
+
+const SHORTCUTS = ['Ctrl+N', 'Ctrl+O', 'Ctrl+S', 'Ctrl+Shift+S', 'Ctrl+P', 'Ctrl+Z', 'Ctrl+Y', 'Ctrl+X', 'Ctrl+C', 'Ctrl+V', 'Ctrl+A', 'Ctrl+F', 'Ctrl+H', 'Ctrl+Q', 'Ctrl+W',
+  'Alt+F4', 'F1', 'F2', 'F3', 'F5', 'F12', 'Delete', 'Ctrl+Delete', 'Ctrl+1', 'Ctrl+2'];
+const MASKS = [
+  ['Sayısal (5 basamak)', '00000'], ['Telefon (Türkiye)', '(999) 000-0000'], ['Cep telefonu', '0(500) 000 00 00'], ['Kısa tarih', '00/00/0000'],
+  ['Kısa tarih ve saat', '00/00/0000 90:00'], ['Saat (24 saat)', '90:00'], ['Posta kodu', '00000'], ['T.C. kimlik no', '00000000000'],
+  ['IBAN (TR)', 'TR00 0000 0000 0000 0000 0000 00'], ['Kredi kartı', '0000 0000 0000 0000'],
+];
 
 const FONT_FAMILIES = ['Segoe UI', 'Arial', 'Calibri', 'Cambria', 'Comic Sans MS', 'Consolas', 'Courier New', 'Georgia', 'Impact', 'Microsoft Sans Serif', 'Tahoma', 'Times New Roman', 'Trebuchet MS', 'Verdana'];
 
@@ -66,7 +74,8 @@ export class PropertyGrid {
     if (name === FORM) return { name, isForm: true, type: 'Form', info: FORM_INFO, props: d.model.props, events: d.model.events, displayName: d.formName };
     const e = d.find(name);
     if (!e?.control) return null;
-    return { name, isForm: false, type: e.control.type, info: CONTROLS[e.control.type], props: e.control.props, events: e.control.events, displayName: name, component: e.component };
+    e.control.events ??= {};
+    return { name, isForm: false, type: e.control.type, info: CONTROLS[e.control.type], props: e.control.props, events: e.control.events, displayName: name, component: e.component, item: e.item };
   }
 
   render() {
@@ -79,6 +88,7 @@ export class PropertyGrid {
     this.select.innerHTML = '';
     const opts = [[FORM, `${d.formName}   System.Windows.Forms.Form`], ...d.walk().map(({ control }) => [control.name, `${control.name}   ${control.type}`]),
       ...(d.model.components || []).map((c) => [c.name, `${c.name}   ${c.type}`])];
+    if (!opts.some(([v]) => v === t.name)) opts.push([t.name, `${t.name}   ${t.type}`]);
     for (const [v, text] of opts) this.select.appendChild(h('option', { value: v, selected: v === t.name }, text));
     if (d.selection.length > 1) this.select.appendChild(h('option', { value: '', selected: true, disabled: true }, `(${d.selection.length} kontrol seçili)`));
 
@@ -102,7 +112,7 @@ export class PropertyGrid {
     for (const prop of names) {
       const def = PROPS[prop];
       if (!def) continue;
-      const label = prop === 'Name' ? '(Name)' : codeName(prop);
+      const label = prop === 'Name' ? '(Name)' : prop === 'StripItems' && t.item ? 'DropDownItems' : codeName(prop);
       const row = h('div', { class: 'prop-row' });
       const value = this.valueOf(t, prop);
       const changed = prop !== 'Name' && prop in t.props && JSON.stringify(t.props[prop]) !== JSON.stringify(propDefault(t.type, prop));
@@ -117,6 +127,24 @@ export class PropertyGrid {
         this.describe(label, def.desc ? ' ' + def.desc : '');
       });
       this.grid.appendChild(row);
+    }
+    // Genişletici özellikler: "ToolTip on toolTip1"
+    if (!t.isForm && !t.component && !t.item) {
+      for (const tt of (this.designer.model.components || []).filter((c) => c.type === 'ToolTip')) {
+        const key = 'ToolTip:' + tt.name;
+        const label = `ToolTip on ${tt.name}`;
+        const row = h('div', { class: 'prop-row' + (t.props[key] ? ' changed' : '') });
+        row.appendChild(h('div', { class: 'prop-name', title: label }, label));
+        const cell = h('div', { class: 'prop-value' });
+        const inp = h('input', { value: t.props[key] ?? '', spellcheck: 'false', readonly: this.host.readonly });
+        const commit = () => { if (inp.value !== (t.props[key] ?? '')) this.apply(t, key, inp.value || undefined); };
+        inp.addEventListener('change', commit);
+        inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); inp.blur(); } });
+        cell.appendChild(inp);
+        row.appendChild(cell);
+        row.addEventListener('focusin', () => this.describe(label, ' Fare kontrolün üzerine gelince görünecek ipucu metni.'));
+        this.grid.appendChild(row);
+      }
     }
   }
 
@@ -259,8 +287,37 @@ export class PropertyGrid {
         input(`(Koleksiyon) ${(value || []).length} sütun`, () => {}, { readonly: true });
         more(() => this.columnsDialog(t, value || [], (v) => this.apply(t, prop, v)), 'Sütunları düzenle');
         break;
+      case 'mask':
+        input(value ?? '', (v) => this.apply(t, prop, v || undefined), { placeholder: '(yok)' });
+        more(() => this.maskDialog(value || '', (v) => this.apply(t, prop, v || undefined)), 'Maske seç');
+        break;
+      case 'shortcut': {
+        const listId = 'sc-' + Math.random().toString(36).slice(2, 7);
+        input(value ?? '', (v) => {
+          const val = v.trim();
+          if (val && !/^((Ctrl|Shift|Alt)\+)*([A-Z0-9]|F\d{1,2}|Delete|Insert|Home|End|PageUp|PageDown|Enter|Escape|Space|Back)$/i.test(val)) {
+            toast('Kısayol biçimi: Ctrl+S, Ctrl+Shift+N, F5 ...', 'error');
+            this.render();
+            return;
+          }
+          this.apply(t, prop, val || undefined);
+        }, { placeholder: '(yok)', list: listId });
+        cell.appendChild(h('datalist', { id: listId }, SHORTCUTS.map((k) => h('option', { value: k }))));
+        break;
+      }
+      case 'tsitems':
+        input(`(Koleksiyon) ${(value || []).length} öğe`, () => {}, { readonly: true });
+        more(() => this.stripItemsDialog(t, value || [], (v) => this.apply(t, prop, v)), 'Öğeleri düzenle');
+        break;
+      case 'tabpages': {
+        const pages = this.designer.find(t.name)?.control?.controls || [];
+        input(`(Koleksiyon) ${pages.length} sekme`, () => {}, { readonly: true });
+        more(() => this.tabPagesDialog(t), 'Sekmeleri düzenle');
+        break;
+      }
       case 'controlref': {
-        const buttons = this.designer.walk().filter((e) => e.control.type === (def.refType || 'Button')).map((e) => e.control.name);
+        const buttons = [...this.designer.walk().map((e) => e.control), ...(this.designer.model.components || [])]
+          .filter((c) => c.type === (def.refType || 'Button')).map((c) => c.name);
         select(['', ...buttons], value || '', (v) => this.apply(t, prop, v || undefined), ['(yok)', ...buttons]);
         break;
       }
@@ -374,6 +431,101 @@ export class PropertyGrid {
       toast(`Geçersiz ya da kullanılmış sütun adı: "${bad.name}"`, 'error');
     }
     done(cols.map((c) => ({ name: c.name, type: c.type, props: Object.fromEntries(Object.entries(c.props).filter(([, v]) => v !== undefined && v !== '')) })));
+  }
+
+  async maskDialog(current, done) {
+    const preview = h('div', { class: 'mask-preview' });
+    const inp = h('input', { class: 'input', value: current, spellcheck: 'false' });
+    const update = () => { preview.textContent = 'Önizleme: ' + (maskPreview(inp.value, '_') || '(maske yok)'); };
+    inp.oninput = update;
+    const list = h('div', { class: 'mask-list' }, MASKS.map(([n, m]) => {
+      const row = h('div', { class: 'mask-row' + (m === current ? ' selected' : '') }, h('span', {}, n), h('code', {}, m), h('span', { class: 'muted' }, maskPreview(m)));
+      row.onclick = () => {
+        list.querySelectorAll('.selected').forEach((x) => x.classList.remove('selected'));
+        row.classList.add('selected');
+        inp.value = m;
+        update();
+      };
+      return row;
+    }));
+    update();
+    const body = h('div', { class: 'mask-editor' },
+      h('p', { class: 'muted', style: { marginTop: 0 } }, '0: rakam (zorunlu) · 9: rakam/boşluk · L: harf (zorunlu) · ?: harf · A: harf/rakam · &: herhangi karakter · \\: sonraki karakteri olduğu gibi yaz'),
+      list, h('label', {}, 'Maske: ', inp), preview);
+    const r = await modal({ title: 'Giriş Maskesi', body, width: 560, buttons: [{ text: 'Vazgeç', value: null }, { text: 'Tamam', value: 'ok', primary: true }] });
+    if (r === 'ok') done(inp.value);
+  }
+
+  /** Menü / araç çubuğu öğeleri koleksiyon düzenleyicisi. */
+  async stripItemsDialog(t, items, done) {
+    const d = this.designer;
+    const list = items.map((it) => JSON.parse(JSON.stringify(it)));
+    const ownerType = t.type;
+    const kind = t.item ? 'dropdown' : CONTROLS[ownerType]?.strip === 'context' ? 'dropdown' : CONTROLS[ownerType]?.strip || 'dropdown';
+    const reserved = new Set();
+    const rows = h('div', { class: 'col-list' });
+    const typeSel = h('select', { class: 'input' }, (STRIP_ADDABLE[kind] || STRIP_ADDABLE.dropdown).map((k) => h('option', { value: k }, STRIP_ITEMS[k].label)));
+    const render = () => {
+      rows.innerHTML = '';
+      rows.appendChild(h('div', { class: 'col-row tsi-row col-head' }, h('span', {}, 'Ad (Name)'), h('span', {}, 'Tür'), h('span', {}, 'Text'), h('span', {}, '')));
+      list.forEach((it, i) => {
+        const text = h('input', { class: 'input', value: it.props?.Text ?? '', disabled: it.type === 'ToolStripSeparator' });
+        text.onchange = () => { it.props = { ...it.props, Text: text.value }; };
+        const up = h('button', { class: 'btn btn-small', title: 'Yukarı', disabled: i === 0 }, '▲');
+        up.onclick = () => { list.splice(i - 1, 0, list.splice(i, 1)[0]); render(); };
+        const del = h('button', { class: 'btn btn-small', title: 'Sil' }, '✕');
+        del.onclick = () => { list.splice(i, 1); render(); };
+        rows.appendChild(h('div', { class: 'col-row tsi-row' }, h('code', {}, it.name), h('span', { class: 'muted' }, STRIP_ITEMS[it.type]?.label || it.type), text, h('span', {}, up, del)));
+      });
+      const add = h('button', { class: 'btn' }, '+ Ekle');
+      add.onclick = () => {
+        const type = typeSel.value;
+        const name = d.uniqueName(STRIP_ITEMS[type].prefix, reserved);
+        const it = { type, name, props: type === 'ToolStripSeparator' ? {} : { Text: name }, events: {} };
+        list.push(it);
+        render();
+      };
+      rows.appendChild(h('div', { class: 'tsi-add' }, typeSel, add));
+    };
+    render();
+    const body = h('div', { class: 'col-editor' }, h('p', { class: 'muted', style: { marginTop: 0 } }, 'Alt menüleri düzenlemek için tasarımda menü öğesini seçip DropDownItems özelliğini kullanın ya da "Buraya yazın" kutusuna yazın.'), rows);
+    const r = await modal({ title: 'Öğe Koleksiyonu Düzenleyicisi', body, width: 640, buttons: [{ text: 'Vazgeç', value: null }, { text: 'Tamam', value: 'ok', primary: true }] });
+    if (r === 'ok') done(list);
+  }
+
+  /** TabControl sekmeleri (TabPages) düzenleyicisi. */
+  async tabPagesDialog(t) {
+    const d = this.designer;
+    const tc = d.find(t.name)?.control;
+    if (!tc) return;
+    const pages = tc.controls.map((pg) => ({ page: pg, name: pg.name, text: pg.props.Text ?? '' }));
+    const rows = h('div', { class: 'col-list' });
+    const render = () => {
+      rows.innerHTML = '';
+      rows.appendChild(h('div', { class: 'col-row tsi-row col-head' }, h('span', {}, 'Ad (Name)'), h('span', {}, 'Text'), h('span', {}, 'Denetim'), h('span', {}, '')));
+      pages.forEach((p, i) => {
+        const text = h('input', { class: 'input', value: p.text });
+        text.onchange = () => { p.text = text.value; };
+        const up = h('button', { class: 'btn btn-small', title: 'Yukarı', disabled: i === 0 }, '▲');
+        up.onclick = () => { pages.splice(i - 1, 0, pages.splice(i, 1)[0]); render(); };
+        const del = h('button', { class: 'btn btn-small', title: 'Sil' }, '✕');
+        del.onclick = () => { pages.splice(i, 1); render(); };
+        const n = p.page?.controls?.length || 0;
+        rows.appendChild(h('div', { class: 'col-row tsi-row' }, h('code', {}, p.name), text, h('span', { class: 'muted' }, n ? `${n} kontrol` : ''), h('span', {}, up, del)));
+      });
+      const add = h('button', { class: 'btn' }, '+ Sekme ekle');
+      const reserved = new Set(pages.map((p) => p.name));
+      add.onclick = () => {
+        const name = d.uniqueName('tabPage', reserved);
+        pages.push({ page: null, name, text: name });
+        render();
+      };
+      rows.appendChild(add);
+    };
+    render();
+    const r = await modal({ title: 'TabPage Koleksiyonu Düzenleyicisi', body: h('div', { class: 'col-editor' }, rows), width: 560, buttons: [{ text: 'Vazgeç', value: null }, { text: 'Tamam', value: 'ok', primary: true }] });
+    if (r !== 'ok') return;
+    d.setTabPages(t.name, pages);
   }
 
   async itemsDialog(items, done) {

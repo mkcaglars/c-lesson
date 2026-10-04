@@ -63,6 +63,19 @@ namespace Tests
             Assert.IsType<DataGridViewCheckBoxColumn>(grid.Columns[1]);
             Assert.Equal(DataGridViewSelectionMode.FullRowSelect, grid.SelectionMode);
             Assert.Equal(0, grid.Rows.Count);
+            var tabs = (TabControl)form.Controls.Find("tabControl1", true).Single();
+            Assert.Equal(2, tabs.TabCount);
+            Assert.Equal(1, tabs.SelectedIndex);
+            Assert.Equal("Ayrıntı", tabs.SelectedTab.Text);
+            var menu = (MenuStrip)form.Controls.Find("menuStrip1", true).Single();
+            Assert.Same(menu, form.MainMenuStrip);
+            var dosya = (ToolStripMenuItem)menu.Items[0];
+            Assert.Equal(3, dosya.DropDownItems.Count);
+            Assert.Equal(Keys.Control | Keys.O, ((ToolStripMenuItem)dosya.DropDownItems[0]).ShortcutKeys);
+            ((ToolStripMenuItem)dosya.DropDownItems[0]).PerformClick();
+            var mask = (MaskedTextBox)form.Controls.Find("maskedTextBox1", true).Single();
+            Assert.Equal("(   )    -", mask.Text);
+            Assert.NotNull(mask.ContextMenuStrip);
             var deep = form.Controls.Find("button2", true).Single();
             Assert.Equal("panel2", deep.Parent.Name);
             var panel2 = form.Controls.Find("panel2", true).Single();
@@ -76,6 +89,7 @@ namespace Tests
             Assert.Contains("Form1_Load", olaylar);
             Assert.Contains("checkBox1_CheckedChanged", olaylar);
             Assert.Contains("button2_MouseMove", olaylar);
+            Assert.Contains("aç_Click", olaylar);
         }
     }
 }

@@ -1,9 +1,29 @@
 // Görsel form tasarımcısı (Visual Studio Windows Forms tasarımcısına benzer).
 import { createItem, setProp, measureText } from './winui.js';
-import { CONTROLS, colorToCss, fontToCss, DEFAULT_FONT, propDefault } from './catalog.js';
+import { CONTROLS, STRIP_ITEMS, STRIP_ADDABLE, colorToCss, fontToCss, DEFAULT_FONT, propDefault } from './catalog.js';
+import { stripItemsOf } from './codegen.js';
 import { h } from './ui.js';
 
 const FORM = '$form';
+
+/** Sekme başlığı yüksekliği (C# tarafındaki TabControl ile aynı hesap). */
+export function tabHeaderHeight(font) {
+  const size = font?.size || 9;
+  return Math.max(21, Math.ceil(size * 96 / 72 * 1.2) + 6) + 3;
+}
+
+/** MaskedTextBox maskesinin tasarımda görünen hali (Türkçe ayraçlarla). */
+export function maskPreview(mask, prompt = '_') {
+  let out = '';
+  for (let i = 0; i < (mask || '').length; i++) {
+    const m = mask[i];
+    if (m === '\\') { if (i + 1 < mask.length) out += mask[++i]; continue; }
+    if ('<>|'.includes(m)) continue;
+    if ('09#L?&CAa'.includes(m)) { out += prompt; continue; }
+    out += { '.': ',', ',': '.', '/': '.', $: '₺' }[m] ?? m;
+  }
+  return out;
+}
 const SNAP = 6;
 let clipboard = null;
 
@@ -54,7 +74,29 @@ export class FormDesigner {
     if (name === FORM) return { control: null, parent: null, list: null };
     const comp = (this.model.components || []).find((c) => c.name === name);
     if (comp) return { control: comp, parent: null, list: this.model.components, component: true };
-    return this.walk().find((e) => e.control.name === name) || null;
+    return this.walk().find((e) => e.control.name === name) || this.findItem(name);
+  }
+
+  /** Menü/araç çubuğu sahipleri (kontroller ve ContextMenuStrip bileşenleri). */
+  stripOwners() {
+    return [...this.walk().map((e) => e.control), ...(this.model.components || [])].filter((c) => CONTROLS[c.type]?.strip);
+  }
+
+  findItem(name) {
+    const search = (owner, strip) => {
+      const list = owner.props?.StripItems || [];
+      for (const it of list) {
+        if (it.name === name) return { control: it, parent: owner, list, item: true, strip };
+        const r = search(it, strip);
+        if (r) return r;
+      }
+      return null;
+    };
+    for (const o of this.stripOwners()) {
+      const r = search(o, o);
+      if (r) return r;
+    }
+    return null;
   }
 
   childrenOf(name) {
@@ -76,6 +118,7 @@ export class FormDesigner {
       for (const col of control.props?.Columns || []) names.add(col.name);
     }
     for (const c of this.model.components || []) names.add(c.name);
+    for (const o of this.stripOwners()) for (const it of stripItemsOf(o)) names.add(it.name);
     return names;
   }
 
@@ -143,6 +186,13 @@ export class FormDesigner {
     for (const c of list) {
       if (!c.controls) continue;
       const [w, hh] = c.props.Size;
+      if (c.type === 'TabControl') {
+        const top = tabHeaderHeight(this.effectiveFont(c.name));
+        for (const pg of c.controls) {
+          pg.props.Location = [4, top];
+          pg.props.Size = [Math.max(0, w - 8), Math.max(0, hh - top - 4)];
+        }
+      }
       const inner = c.type === 'GroupBox' ? { x: 3, y: 19, w: w - 6, h: hh - 22 } : { x: 0, y: 0, w, h: hh };
       this.layoutDock(c.controls, inner);
     }
@@ -215,22 +265,185 @@ export class FormDesigner {
     this.formItem = form;
     this.items.set(FORM, form);
     this.renderList(m.controls, form.client);
+    this.renderContextEditors();
     this.surface.appendChild(this.layer);
     this.renderTray();
     this.drawSelection();
   }
 
-  renderList(list, parentEl) {
+  renderList(list, parentEl, parent = null) {
     list.forEach((c, i) => {
       const it = createItem(c.type, c.name);
       it.el.dataset.dname = c.name;
       it.model = c;
       this.applyProps(it, c);
       it.el.style.zIndex = String(list.length - i);
+      if (parent?.type === 'TabControl' && i !== this.selectedTab(parent)) it.el.classList.add('wf-hidden');
       parentEl.appendChild(it.el);
       this.items.set(c.name, it);
-      if (c.controls) this.renderList(c.controls, it.client || it.el);
+      if (c.controls) this.renderList(c.controls, it.client || it.el, c);
     });
+  }
+
+  selectedTab(tc) {
+    const n = tc.controls?.length || 0;
+    return Math.max(0, Math.min(n - 1, Number(tc.props.SelectedIndex) || 0));
+  }
+
+  // ------------------------------------------------------------------ menü ve araç çubukları
+
+  /** Seçili öğeler ve üst menüleri (açık gösterilecek alt menüler). */
+  openPath() {
+    const path = new Set();
+    for (const n of this.selection) {
+      let e = this.find(n);
+      while (e?.item) {
+        path.add(e.control.name);
+        e = STRIP_ITEMS[e.parent.type] ? this.find(e.parent.name) : null;
+      }
+    }
+    return path;
+  }
+
+  renderStrip(it, owner, kind) {
+    const host = it.client || it.el;
+    const path = this.openPath();
+    for (const item of owner.props.StripItems || []) host.appendChild(this.renderStripItem(item, path));
+    if (!this.readOnly && (this.selection.includes(owner.name) || [...path].some((n) => this.find(n)?.strip === owner) || !(owner.props.StripItems || []).length)) {
+      host.appendChild(this.typeHere(owner.name, kind));
+    }
+  }
+
+  renderStripItem(item, path) {
+    const info = STRIP_ITEMS[item.type] || STRIP_ITEMS.ToolStripButton;
+    const ui = createItem(info.ui, item.name);
+    ui.el.dataset.dname = item.name;
+    const p = item.props;
+    if (item.type !== 'ToolStripSeparator') setProp(ui, 'text', p.Text ?? '');
+    if (item.type === 'ToolStripComboBox') setProp(ui, 'items', JSON.stringify(p.Items || []));
+    if (p.DisplayStyle) setProp(ui, 'displaystyle', p.DisplayStyle);
+    if (p.Checked) setProp(ui, 'checked', '1');
+    if (p.Enabled === false) setProp(ui, 'enabled', '0');
+    if (p.IsLink) setProp(ui, 'islink', '1');
+    if (p.Spring) setProp(ui, 'spring', '1');
+    if (p.ItemAlignment === 'Right') setProp(ui, 'alignment', 'Right');
+    if (p.ShortcutKeys && p.ShowShortcutKeys !== false) setProp(ui, 'shortcuttext', p.ShortcutKeys);
+    if (p.ForeColor) ui.el.style.color = colorToCss(p.ForeColor);
+    if (p.BackColor) ui.el.style.backgroundColor = colorToCss(p.BackColor);
+    if (p.Visible === false) ui.el.classList.add('wf-hidden-design');
+    if (ui.input) ui.input.tabIndex = -1;
+    if (ui.select) ui.select.tabIndex = -1;
+    this.items.set(item.name, ui);
+    if (info.parentOf && path.has(item.name)) {
+      ui.el.classList.add('open');
+      for (const ch of p.StripItems || []) ui.client.appendChild(this.renderStripItem(ch, path));
+      if (!this.readOnly) ui.client.appendChild(this.typeHere(item.name, 'dropdown'));
+    }
+    return ui.el;
+  }
+
+  typeHere(owner, kind) {
+    const el = h('div', { class: 'd-typehere', 'data-owner': owner, 'data-kind': kind },
+      h('span', { class: 'd-typehere-text' }, kind === 'tool' || kind === 'status' ? '＋' : 'Buraya yazın'));
+    if (STRIP_ADDABLE[kind]?.length > 1) el.appendChild(h('span', { class: 'd-typehere-more', title: 'Öğe türü seç' }, '▾'));
+    return el;
+  }
+
+  /** "Buraya yazın" kutusuna tıklanınca: yazılan metinle yeni öğe oluşturulur. */
+  beginTypeHere(el, e) {
+    const owner = el.dataset.owner;
+    const kind = el.dataset.kind;
+    if (e.target.closest('.d-typehere-more') || kind === 'tool' || kind === 'status') {
+      this.showAddMenu(el, owner, kind);
+      return;
+    }
+    const input = h('input', { class: 'd-typehere-input', spellcheck: 'false' });
+    el.textContent = '';
+    el.appendChild(input);
+    el.classList.add('editing');
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      const text = input.value.trim();
+      if (ok && text) this.addStripItem(owner, text === '-' ? 'ToolStripSeparator' : 'ToolStripMenuItem', text === '-' ? null : input.value);
+      else this.render();
+    };
+    input.addEventListener('keydown', (ev) => {
+      ev.stopPropagation();
+      if (ev.key === 'Enter') { ev.preventDefault(); finish(true); }
+      if (ev.key === 'Escape') { ev.preventDefault(); finish(false); }
+    });
+    input.addEventListener('mousedown', (ev) => ev.stopPropagation());
+    input.addEventListener('blur', () => finish(true));
+    setTimeout(() => input.focus(), 0);
+  }
+
+  showAddMenu(anchor, owner, kind) {
+    this.closeAddMenu();
+    const types = STRIP_ADDABLE[kind] || STRIP_ADDABLE.dropdown;
+    const menu = h('div', { class: 'd-addmenu' }, types.map((t) => {
+      const row = h('div', { class: 'd-addmenu-item' }, STRIP_ITEMS[t].label + '  (' + t + ')');
+      row.addEventListener('mousedown', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        this.closeAddMenu();
+        this.addStripItem(owner, t, null);
+      });
+      return row;
+    }));
+    const r = anchor.getBoundingClientRect();
+    menu.style.left = r.left + 'px';
+    menu.style.top = r.bottom + 'px';
+    document.body.appendChild(menu);
+    this.addMenu = menu;
+    setTimeout(() => document.addEventListener('mousedown', this.closeAddMenuBound ??= () => this.closeAddMenu(), { once: true }), 0);
+  }
+
+  closeAddMenu() {
+    this.addMenu?.remove();
+    this.addMenu = null;
+  }
+
+  /** VS gibi ad: "Dosya" → dosyaToolStripMenuItem */
+  menuItemName(text) {
+    let base = String(text).replace(/&/g, '').trim().split(/\s+/)
+      .map((w, i) => (i ? w.charAt(0).toLocaleUpperCase('tr-TR') + w.slice(1) : w)).join('');
+    base = base.replace(/[^\p{L}\p{N}_]/gu, '');
+    if (!base || /^\p{N}/u.test(base)) return this.uniqueName('toolStripMenuItem');
+    base = base.charAt(0).toLocaleLowerCase('tr-TR') + base.slice(1) + 'ToolStripMenuItem';
+    return this.allNames().has(base) ? this.uniqueName(base) : base;
+  }
+
+  addStripItem(ownerName, type, text) {
+    if (this.readOnly) return;
+    const owner = this.find(ownerName)?.control;
+    if (!owner) return;
+    this.snapshot();
+    owner.props.StripItems ??= [];
+    const name = type === 'ToolStripMenuItem' && text ? this.menuItemName(text) : this.uniqueName(STRIP_ITEMS[type].prefix);
+    const item = { type, name, props: {}, events: {} };
+    if (!['ToolStripSeparator', 'ToolStripProgressBar', 'ToolStripComboBox', 'ToolStripTextBox'].includes(type)) item.props.Text = text ?? name;
+    owner.props.StripItems.push(item);
+    this.selection = [name];
+    this.commit();
+    this.wrap.focus({ preventScroll: true });
+  }
+
+  /** ContextMenuStrip seçiliyken formun üstünde menü düzenleyicisi gösterilir. */
+  renderContextEditors() {
+    const path = this.openPath();
+    for (const c of this.model.components || []) {
+      if (c.type !== 'ContextMenuStrip') continue;
+      const active = this.selection.includes(c.name) || [...path].some((n) => this.find(n)?.strip === c);
+      if (!active) continue;
+      const box = h('div', { class: 'd-ctxedit' }, h('div', { class: 'd-ctxedit-title' }, c.name));
+      const drop = h('div', { class: 'wf-tsdrop d-ctxdrop' });
+      for (const item of c.props.StripItems || []) drop.appendChild(this.renderStripItem(item, path));
+      if (!this.readOnly) drop.appendChild(this.typeHere(c.name, 'dropdown'));
+      box.appendChild(drop);
+      this.formItem.client.appendChild(box);
+    }
   }
 
   applyProps(it, c) {
@@ -249,7 +462,7 @@ export class FormDesigner {
     if (align && ['Button', 'Label', 'LinkLabel', 'CheckBox', 'RadioButton'].includes(t)) setProp(it, 'align', align);
     if (p.HAlign) setProp(it, 'align', p.HAlign);
     const bs = p.BorderStyle ?? propDefault(t, 'BorderStyle');
-    if (bs && ['Label', 'Panel', 'PictureBox', 'TextBox', 'RichTextBox', 'ListBox'].includes(t)) setProp(it, 'borderstyle', bs);
+    if (bs && ['Label', 'Panel', 'PictureBox', 'TextBox', 'MaskedTextBox', 'RichTextBox', 'ListBox'].includes(t)) setProp(it, 'borderstyle', bs);
     if (p.FlatStyle) setProp(it, 'flat', p.FlatStyle);
     switch (t) {
       case 'TextBox':
@@ -302,6 +515,26 @@ export class FormDesigner {
       case 'Panel':
         if (!p.BorderStyle || p.BorderStyle === 'None') it.el.classList.add('d-outline');
         break;
+      case 'MenuStrip':
+      case 'ToolStrip':
+      case 'StatusStrip':
+        this.renderStrip(it, c, CONTROLS[t].strip);
+        if (p.GripStyle === 'Hidden' || t === 'MenuStrip' || t === 'StatusStrip') setProp(it, 'grip', '0');
+        break;
+      case 'TabControl': {
+        const pages = c.controls || [];
+        setProp(it, 'tabs', JSON.stringify({ t: pages.map((pg) => pg.props.Text ?? pg.name), s: this.selectedTab(c), h: tabHeaderHeight(this.effectiveFont(c.name)) }));
+        if (!pages.length) it.el.classList.add('d-outline');
+        break;
+      }
+      case 'TabPage':
+        setProp(it, 'visualback', p.UseVisualStyleBackColor ? '1' : '0');
+        break;
+      case 'MaskedTextBox':
+        setProp(it, 'text', maskPreview(p.Mask, p.PromptChar || '_'));
+        if (p.ReadOnly) setProp(it, 'readonly', '1');
+        if (p.HAlign) setProp(it, 'align', p.HAlign);
+        break;
       case 'DataGridView': {
         const cols = (p.Columns || []).map((c) => ({
           h: c.props?.HeaderText ?? c.name, w: Number(c.props?.Width) || 125, fw: 100,
@@ -348,10 +581,47 @@ export class FormDesigner {
   }
 
   select(names) {
+    const before = this.openPath();
     this.selection = names.length ? names : [FORM];
+    // Gizli sekmedeki bir kontrol seçilirse o sekme açılır; seçilen menü öğesinin alt menüsü açılır.
+    let rerender = this.revealTabs(this.selection);
+    const after = this.openPath();
+    if (before.size !== after.size || [...after].some((n) => !before.has(n))) rerender = true;
+    if (this.selection.some((n) => CONTROLS[this.find(n)?.control?.type]?.strip) || [...before].length) rerender = true;
+    if (rerender) {
+      this.render();
+      this.host.onSelectionChanged(this);
+      return;
+    }
     this.drawSelection();
     this.renderTraySelection();
     this.host.onSelectionChanged(this);
+  }
+
+  /** Seçilen kontrol kapalı bir sekmedeyse o sekmeyi seçer. Değişiklik olduysa true. */
+  revealTabs(names) {
+    let changed = false;
+    for (const n of names) {
+      let e = this.find(n);
+      while (e?.parent) {
+        const parent = e.parent;
+        if (parent.type === 'TabControl') {
+          const idx = parent.controls.indexOf(e.control);
+          if (idx >= 0 && idx !== this.selectedTab(parent)) {
+            parent.props.SelectedIndex = idx;
+            changed = true;
+          }
+        }
+        e = this.find(parent.name);
+      }
+      const self = this.find(n);
+      if (self?.control?.type === 'TabPage' && self.parent?.type === 'TabControl') {
+        const idx = self.parent.controls.indexOf(self.control);
+        if (idx !== this.selectedTab(self.parent)) { self.parent.props.SelectedIndex = idx; changed = true; }
+      }
+    }
+    if (changed) this.host.onDesignChanged(this.formName);
+    return changed;
   }
 
   renderTraySelection() {
@@ -384,8 +654,9 @@ export class FormDesigner {
     if (this.readOnly) return [];
     if (name === FORM) return ['e', 's', 'se'];
     const e = this.find(name);
-    if (!e?.control || e.component) return [];
+    if (!e?.control || e.component || e.item) return [];
     const c = e.control;
+    if (c.type === 'TabPage') return [];
     const dock = c.props.Dock;
     if (dock && dock !== 'None') return { Fill: [], Top: ['s'], Bottom: ['n'], Left: ['e'], Right: ['w'] }[dock] || [];
     if (c.props.AutoSize && ['Label', 'LinkLabel', 'CheckBox', 'RadioButton'].includes(c.type)) return [];
@@ -422,11 +693,6 @@ export class FormDesigner {
 
   bind() {
     this.wrap.addEventListener('mousedown', (e) => this.onMouseDown(e));
-    this.wrap.addEventListener('dblclick', (e) => {
-      const name = this.hitName(e.target);
-      if (!name || e.target.closest('.dhandle')) return;
-      this.openDefaultEvent(name);
-    });
     this.wrap.addEventListener('keydown', (e) => this.onKey(e));
     this.wrap.addEventListener('dragover', (e) => {
       if (this.readOnly || !e.dataTransfer.types.includes('text/x-wf-control')) return;
@@ -515,17 +781,34 @@ export class FormDesigner {
     const name = this.uniqueName(info.prefix);
     if (info.component) {
       this.model.components ??= [];
-      this.model.components.push({ type, name, props: {}, events: {} });
+      this.model.components.push({ type, name, props: info.defaults(name), events: {} });
       this.selection = [name];
       this.commit();
+      this.host.clearActiveTool?.();
       return;
     }
+    if (info.item) return;
+    if (type === 'TabPage' && this.find(parent)?.control?.type !== 'TabControl') return;
     const list = this.childrenOf(parent);
     const tab = Math.max(-1, ...this.walk(list, null, []).filter((e) => e.list === list).map((e) => e.control.props.TabIndex ?? -1)) + 1;
     const props = { ...info.defaults(name), Location: [x, y], Size: [...(size || info.size)], TabIndex: tab };
     const c = { type, name, props, events: {} };
     if (info.container) c.controls = [];
-    list.unshift(c);
+    if (info.tabs) {
+      const reserved = new Set([name]);
+      c.controls = [1, 2].map((i) => {
+        const pn = this.uniqueName('tabPage', reserved);
+        return { type: 'TabPage', name: pn, props: { ...CONTROLS.TabPage.defaults(pn), TabIndex: i - 1 }, events: {}, controls: [] };
+      });
+    }
+    if (info.strip) {
+      const [cw] = parent === FORM ? (this.model.props.ClientSize || [800, 450]) : this.find(parent).control.props.Size;
+      props.Location = [0, 0];
+      props.Size = [cw, info.size[1]];
+      if (type === 'MenuStrip' && !this.model.props.MainMenuStrip && parent === FORM) this.model.props.MainMenuStrip = name;
+    }
+    if (type === 'MenuStrip') list.push(c);
+    else list.unshift(c);
     this.selection = [name];
     this.commit();
     this.host.clearActiveTool?.();
@@ -542,7 +825,12 @@ export class FormDesigner {
       if (!e) continue;
       const idx = e.list.indexOf(e.control);
       if (idx >= 0) e.list.splice(idx, 1);
-      for (const k of ['AcceptButton', 'CancelButton']) if (this.model.props[k] === n) delete this.model.props[k];
+      for (const k of ['AcceptButton', 'CancelButton', 'MainMenuStrip', 'ContextMenuStrip']) if (this.model.props[k] === n) delete this.model.props[k];
+      for (const { control } of this.walk()) {
+        if (control.props.ContextMenuStrip === n) delete control.props.ContextMenuStrip;
+        delete control.props['ToolTip:' + n];
+      }
+      if (e.parent?.type === 'TabControl') e.parent.props.SelectedIndex = Math.min(this.selectedTab(e.parent), Math.max(0, e.parent.controls.length - 1));
     }
     this.selection = [FORM];
     this.commit();
@@ -551,7 +839,8 @@ export class FormDesigner {
   copySelection(cut = false) {
     const names = this.selection.filter((n) => n !== FORM);
     if (!names.length) return;
-    clipboard = names.map((n) => this.find(n)).filter(Boolean).map((e) => ({ control: clone(e.control), component: !!e.component }));
+    clipboard = names.map((n) => this.find(n)).filter((e) => e && !e.item && e.control.type !== 'TabPage').map((e) => ({ control: clone(e.control), component: !!e.component }));
+    if (!clipboard.length) clipboard = null;
     if (cut) this.deleteSelection();
   }
 
@@ -566,12 +855,15 @@ export class FormDesigner {
     const rename = (c) => {
       c.name = this.uniqueName(CONTROLS[c.type]?.prefix || 'control', reserved);
       for (const col of c.props?.Columns || []) col.name = this.uniqueName(col.name.replace(/\d+$/, ''), reserved);
+      for (const it of stripItemsOf(c)) it.name = this.uniqueName(it.name.replace(/\d+$/, ''), reserved);
+      if (c.props?.ContextMenuStrip) delete c.props.ContextMenuStrip;
       if (c.controls) c.controls.forEach(rename);
     };
     for (const item of clipboard) {
       const c = clone(item.control);
       if (item.component) {
         c.name = this.uniqueName(CONTROLS[c.type]?.prefix || 'component', reserved);
+        for (const it of stripItemsOf(c)) it.name = this.uniqueName(it.name.replace(/\d+$/, ''), reserved);
         this.model.components.push(c);
         added.push(c.name);
         continue;
@@ -591,7 +883,9 @@ export class FormDesigner {
     const e = isForm ? null : this.find(name);
     if (!isForm && !e?.control) return;
     const type = isForm ? null : e.control.type;
-    const evt = isForm ? 'Load' : CONTROLS[type]?.defaultEvent || 'Click';
+    const info = CONTROLS[type];
+    if (!isForm && info && info.defaultEvent === null) return;
+    const evt = isForm ? 'Load' : info?.defaultEvent || 'Click';
     this.host.openEventHandler(this, isForm ? FORM : name, evt);
   }
 
@@ -600,15 +894,59 @@ export class FormDesigner {
   onMouseDown(e) {
     if (e.button !== 0) return;
     this.wrap.focus({ preventScroll: true });
+    // Çift tıklama: seçim sonrası yeniden çizim tarayıcının dblclick olayını bozabildiği için elle algılanır.
+    const hit = !e.target.closest('.dhandle, .d-typehere, .wf-tab') ? this.hitName(e.target) : null;
+    const now = performance.now();
+    if (hit && this.lastDown?.name === hit && now - this.lastDown.t < 450 && Math.abs(e.clientX - this.lastDown.x) < 5 && Math.abs(e.clientY - this.lastDown.y) < 5) {
+      this.lastDown = null;
+      e.preventDefault();
+      if (!this.host.getActiveTool?.()) this.openDefaultEvent(hit);
+      return;
+    }
+    this.lastDown = hit ? { name: hit, t: now, x: e.clientX, y: e.clientY } : null;
     const handle = e.target.closest('.dhandle');
     if (handle) {
       if (handle.dataset.dir) this.startResize(e, handle.dataset.dir);
       e.preventDefault();
       return;
     }
+    const typeHere = e.target.closest('.d-typehere');
+    if (typeHere && !this.readOnly) {
+      e.preventDefault();
+      if (!typeHere.classList.contains('editing')) this.beginTypeHere(typeHere, e);
+      return;
+    }
     const tool = this.host.getActiveTool?.();
     let name = this.hitName(e.target);
     if (!name) name = FORM;
+    const tab = e.target.closest('.wf-tab');
+    if (tab && !tool) {
+      e.preventDefault();
+      const tc = this.find(name)?.control;
+      if (tc?.type === 'TabControl') {
+        const idx = Number(tab.dataset.tab);
+        if (idx !== this.selectedTab(tc)) {
+          tc.props.SelectedIndex = idx;
+          this.host.onDesignChanged(this.formName);
+        }
+        this.selection = [name];
+        this.render();
+        this.host.onSelectionChanged(this);
+      }
+      return;
+    }
+    const hitEntry = name !== FORM ? this.find(name) : null;
+    if (hitEntry?.item && !tool) {
+      e.preventDefault();
+      this.select([name]);
+      return;
+    }
+    if (hitEntry?.control?.type === 'TabPage' && !tool && !e.ctrlKey && !e.shiftKey) {
+      e.preventDefault();
+      this.select([name]);
+      this.startRubber(e, name);
+      return;
+    }
     if (tool && !this.readOnly) {
       e.preventDefault();
       this.startDrawNew(e, tool);
@@ -693,7 +1031,7 @@ export class FormDesigner {
 
   startMove(e, name) {
     const entry = this.find(name);
-    if (!entry?.control || entry.component) return;
+    if (!entry?.control || entry.component || entry.item || entry.control.type === 'TabPage') return;
     const parent = this.parentName(name);
     // Yalnızca aynı kapsayıcıdaki ve yerleşik (dock) olmayan seçili kontroller birlikte taşınır.
     const moving = this.selection.filter((n) => n !== FORM && this.parentName(n) === parent)
@@ -931,11 +1269,35 @@ export class FormDesigner {
     this.snapshot();
     e.control.name = newName;
     if (e.control.props.Text === oldName) e.control.props.Text = newName;
-    for (const k of ['AcceptButton', 'CancelButton']) if (this.model.props[k] === oldName) this.model.props[k] = newName;
+    for (const k of ['AcceptButton', 'CancelButton', 'MainMenuStrip', 'ContextMenuStrip']) if (this.model.props[k] === oldName) this.model.props[k] = newName;
+    for (const { control } of this.walk()) {
+      if (control.props.ContextMenuStrip === oldName) control.props.ContextMenuStrip = newName;
+      if (('ToolTip:' + oldName) in control.props) {
+        control.props['ToolTip:' + newName] = control.props['ToolTip:' + oldName];
+        delete control.props['ToolTip:' + oldName];
+      }
+    }
     this.selection = this.selection.map((n) => (n === oldName ? newName : n));
     this.commit();
     this.host.renameInCode(this.formName, oldName, newName);
     return true;
+  }
+
+  /** TabPages düzenleyicisinden gelen sekme listesi: [{ page (var olan model ya da null), name, text }] */
+  setTabPages(name, pages) {
+    if (this.readOnly) return;
+    const tc = this.find(name)?.control;
+    if (!tc) return;
+    this.snapshot();
+    tc.controls = pages.map((p, i) => {
+      const pg = p.page || { type: 'TabPage', name: p.name, props: { ...CONTROLS.TabPage.defaults(p.name) }, events: {}, controls: [] };
+      pg.props.Text = p.text;
+      pg.props.TabIndex = i;
+      return pg;
+    });
+    tc.props.SelectedIndex = Math.min(this.selectedTab(tc), Math.max(0, tc.controls.length - 1));
+    this.selection = [name];
+    this.commit();
   }
 
   setEvent(name, evt, handler) {

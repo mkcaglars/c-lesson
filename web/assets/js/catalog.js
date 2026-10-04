@@ -129,8 +129,39 @@ export const PROPS = {
   RowHeadersWidth: { type: 'int', cat: 'Düzen', def: 41 },
   BackgroundColor: { type: 'color', cat: 'Görünüm', def: '', desc: 'Satırların dışında kalan alanın rengi.' },
   GridColor: { type: 'color', cat: 'Görünüm', def: '', desc: 'Hücre çizgilerinin rengi.' },
+  // MaskedTextBox
+  Mask: { type: 'mask', cat: 'Davranış', def: '', desc: 'Giriş maskesi: 0 rakam, 9 isteğe bağlı rakam, L harf, ? isteğe bağlı harf, A harf/rakam. Ör. (999) 000-0000' },
+  PromptChar: { type: 'char', cat: 'Davranış', def: '_', desc: 'Boş yerlerde görünen karakter.' },
+  // TabControl
+  TabPages: { type: 'tabpages', cat: 'Davranış', def: [], desc: 'Sekmeler (TabPage).' },
+  SelectedIndex: { type: 'int', cat: 'Davranış', def: null, desc: 'Seçili sekmenin sıra numarası.' },
+  // Menü / araç çubuğu
+  StripItems: { type: 'tsitems', cat: 'Veri', def: [], code: 'Items', desc: 'Menü / araç çubuğu öğeleri.' },
+  GripStyle: { type: 'enum', cat: 'Görünüm', values: ['Hidden', 'Visible'], def: 'Visible', enumType: 'System.Windows.Forms.ToolStripGripStyle', desc: 'Sol baştaki taşıma tutamacı.' },
+  DisplayStyle: { type: 'enum', cat: 'Görünüm', values: ['None', 'Text', 'Image', 'ImageAndText'], def: 'ImageAndText', enumType: 'System.Windows.Forms.ToolStripItemDisplayStyle', desc: 'Öğede yazı mı resim mi görünsün?' },
+  ShortcutKeys: { type: 'shortcut', cat: 'Davranış', def: '', desc: 'Klavye kısayolu (ör. Ctrl+S).' },
+  ShowShortcutKeys: { type: 'bool', cat: 'Davranış', def: true },
+  ToolTipText: { type: 'string', cat: 'Davranış', def: '', desc: 'Fare üzerine gelince görünen ipucu.' },
+  ItemAlignment: { type: 'enum', cat: 'Düzen', values: ['Left', 'Right'], def: 'Left', enumType: 'System.Windows.Forms.ToolStripItemAlignment', code: 'Alignment' },
+  IsLink: { type: 'bool', cat: 'Davranış', def: false },
+  Spring: { type: 'bool', cat: 'Düzen', def: false, desc: 'Durum çubuğundaki boş alanı doldursun mu?' },
+  ContextMenuStrip: { type: 'controlref', cat: 'Davranış', def: '', refType: 'ContextMenuStrip', desc: 'Sağ tıklayınca açılacak menü.' },
+  // Dosya iletişim kutuları
+  FileName: { type: 'string', cat: 'Davranış', def: '' },
+  Filter: { type: 'string', cat: 'Davranış', def: '', desc: 'Ör. Resim Dosyaları|*.jpg;*.png|Tüm Dosyalar|*.*' },
+  FilterIndex: { type: 'int', cat: 'Davranış', def: 1 },
+  Title: { type: 'string', cat: 'Görünüm', def: '' },
+  DefaultExt: { type: 'string', cat: 'Davranış', def: '' },
+  InitialDirectory: { type: 'string', cat: 'Davranış', def: '' },
+  Multiselect: { type: 'bool', cat: 'Davranış', def: false },
+  OverwritePrompt: { type: 'bool', cat: 'Davranış', def: true },
+  // ToolTip / ErrorProvider
+  IsBalloon: { type: 'bool', cat: 'Görünüm', def: false },
+  ToolTipTitle: { type: 'string', cat: 'Görünüm', def: '' },
+  BlinkStyle: { type: 'enum', cat: 'Davranış', values: ['BlinkIfDifferentError', 'AlwaysBlink', 'NeverBlink'], def: 'BlinkIfDifferentError', enumType: 'System.Windows.Forms.ErrorBlinkStyle' },
   AcceptButton: { type: 'controlref', cat: 'Davranış', def: '', refType: 'Button', desc: 'Enter tuşuna basınca tıklanacak düğme.' },
   CancelButton: { type: 'controlref', cat: 'Davranış', def: '', refType: 'Button', desc: 'Esc tuşuna basınca tıklanacak düğme.' },
+  MainMenuStrip: { type: 'controlref', cat: 'Davranış', def: '', refType: 'MenuStrip', desc: 'Formun ana menüsü.' },
 };
 
 // Olay → (temsilci türü, argüman türü)
@@ -171,6 +202,13 @@ export const EVENT_TYPES = {
   UserDeletedRow: ['System.Windows.Forms.DataGridViewRowEventHandler', 'DataGridViewRowEventArgs'],
   UserDeletingRow: ['System.Windows.Forms.DataGridViewRowCancelEventHandler', 'DataGridViewRowCancelEventArgs'],
   DataBindingComplete: ['System.Windows.Forms.DataGridViewBindingCompleteEventHandler', 'DataGridViewBindingCompleteEventArgs'],
+  MaskInputRejected: ['System.Windows.Forms.MaskInputRejectedEventHandler', 'MaskInputRejectedEventArgs'],
+  Selecting: ['System.Windows.Forms.TabControlCancelEventHandler', 'TabControlCancelEventArgs'],
+  Selected: ['System.Windows.Forms.TabControlEventHandler', 'TabControlEventArgs'],
+  ItemClicked: ['System.Windows.Forms.ToolStripItemClickedEventHandler', 'ToolStripItemClickedEventArgs'],
+  DropDownItemClicked: ['System.Windows.Forms.ToolStripItemClickedEventHandler', 'ToolStripItemClickedEventArgs'],
+  Opening: ['System.ComponentModel.CancelEventHandler', 'System.ComponentModel.CancelEventArgs'],
+  FileOk: ['System.ComponentModel.CancelEventHandler', 'System.ComponentModel.CancelEventArgs'],
 };
 
 export function eventTypes(evt) {
@@ -193,10 +231,13 @@ export const EVENT_DESC = {
   UserDeletingRow: 'Kullanıcı Delete ile satır silmek üzereyken (iptal edilebilir)', UserAddedRow: 'Kullanıcı yeni satıra veri girdiğinde',
   CellFormatting: 'Hücre ekrana yazılmadan önce (renk/biçim değiştirmek için)', DataError: 'Hücreye geçersiz veri girildiğinde',
   ColumnHeaderMouseClick: 'Sütun başlığına tıklandığında', CellBeginEdit: 'Hücre düzenlenmeye başlanırken (iptal edilebilir)',
+  MaskInputRejected: 'Maskeye uymayan bir karakter yazıldığında', Selecting: 'Sekme değişmek üzereyken (iptal edilebilir)',
+  ItemClicked: 'Çubuktaki bir öğeye tıklandığında', DropDownOpening: 'Alt menü açılmak üzereyken', Opening: 'Menü açılmak üzereyken (iptal edilebilir)',
+  FileOk: 'Kullanıcı dosyayı seçip Aç/Kaydet dediğinde',
 };
 
 const COMMON_EVENTS = ['Click', 'DoubleClick', 'MouseClick', 'MouseDown', 'MouseUp', 'MouseMove', 'MouseEnter', 'MouseLeave', 'KeyDown', 'KeyUp', 'KeyPress', 'Enter', 'Leave', 'TextChanged', 'Resize', 'VisibleChanged', 'EnabledChanged', 'Validating'];
-const COMMON_PROPS = ['Name', 'Text', 'Location', 'Size', 'Anchor', 'Dock', 'BackColor', 'ForeColor', 'Font', 'Cursor', 'Enabled', 'Visible', 'TabIndex', 'TabStop', 'Tag'];
+const COMMON_PROPS = ['Name', 'Text', 'Location', 'Size', 'Anchor', 'Dock', 'BackColor', 'ForeColor', 'Font', 'Cursor', 'Enabled', 'Visible', 'TabIndex', 'TabStop', 'Tag', 'ContextMenuStrip'];
 
 /**
  * Kontrol türleri. prefix: varsayılan ad öneki. size: varsayılan boyut. defaults: eklenince ayarlanan özellikler.
@@ -318,6 +359,76 @@ export const CONTROLS = {
     defaults: () => ({ ColumnHeadersHeightSizeMode: 'AutoSize', RowHeadersWidth: 51 }),
     propDefaults: { BorderStyle: 'FixedSingle' },
   },
+  MaskedTextBox: {
+    title: 'MaskedTextBox', desc: 'Maskeli metin kutusu (telefon, tarih...)', icon: '#', prefix: 'maskedTextBox', size: [100, 23],
+    props: [...COMMON_PROPS, 'Mask', 'PromptChar', 'ReadOnly', 'HAlign', 'BorderStyle'],
+    events: ['MaskInputRejected', ...COMMON_EVENTS], defaultEvent: 'MaskInputRejected',
+    defaults: () => ({}),
+    propDefaults: { BorderStyle: 'Fixed3D' },
+  },
+  TabControl: {
+    title: 'TabControl', desc: 'Sekmeli kapsayıcı', icon: '\u{1F5C2}', prefix: 'tabControl', size: [200, 100], tabs: true,
+    props: [...COMMON_PROPS.filter((p) => p !== 'Text'), 'TabPages', 'SelectedIndex'],
+    events: ['SelectedIndexChanged', 'Selecting', 'Selected', ...COMMON_EVENTS.filter((e) => e !== 'TextChanged')], defaultEvent: 'SelectedIndexChanged',
+    defaults: () => ({ SelectedIndex: 0 }),
+  },
+  TabPage: {
+    title: 'TabPage', desc: 'Sekme sayfası', icon: '▭', prefix: 'tabPage', size: [192, 72], container: true, hidden: true,
+    props: ['Name', 'Text', 'BackColor', 'ForeColor', 'Font', 'Enabled', 'Cursor', 'Tag', 'UseVisualStyleBackColor', 'ToolTipText', 'TabIndex'],
+    events: ['Click', 'DoubleClick', 'Enter', 'Leave', 'MouseClick', 'MouseDown', 'MouseUp', 'MouseMove', 'Resize'], defaultEvent: 'Click',
+    defaults: (n) => ({ Text: n, UseVisualStyleBackColor: true }),
+  },
+  MenuStrip: {
+    title: 'MenuStrip', desc: 'Menü çubuğu (Dosya, Düzen...)', icon: '☰', prefix: 'menuStrip', size: [800, 24], strip: 'menu',
+    props: ['Name', 'Text', 'StripItems', 'Dock', 'BackColor', 'ForeColor', 'Font', 'Enabled', 'Visible', 'GripStyle', 'ContextMenuStrip', 'Tag', 'TabIndex'],
+    events: ['ItemClicked', 'Click', 'MouseEnter', 'MouseLeave'], defaultEvent: 'ItemClicked',
+    defaults: (n) => ({ Text: n, Dock: 'Top' }),
+    propDefaults: { Dock: 'Top', GripStyle: 'Hidden' },
+  },
+  ToolStrip: {
+    title: 'ToolStrip', desc: 'Araç çubuğu (düğmeler)', icon: '\u{1F6E0}', prefix: 'toolStrip', size: [800, 25], strip: 'tool',
+    props: ['Name', 'Text', 'StripItems', 'Dock', 'BackColor', 'ForeColor', 'Font', 'Enabled', 'Visible', 'GripStyle', 'ContextMenuStrip', 'Tag', 'TabIndex'],
+    events: ['ItemClicked', 'Click', 'MouseEnter', 'MouseLeave'], defaultEvent: 'ItemClicked',
+    defaults: (n) => ({ Text: n, Dock: 'Top' }),
+    propDefaults: { Dock: 'Top' },
+  },
+  StatusStrip: {
+    title: 'StatusStrip', desc: 'Durum çubuğu (alt kısım)', icon: '▁', prefix: 'statusStrip', size: [800, 22], strip: 'status',
+    props: ['Name', 'Text', 'StripItems', 'Dock', 'BackColor', 'ForeColor', 'Font', 'Enabled', 'Visible', 'ContextMenuStrip', 'Tag', 'TabIndex'],
+    events: ['ItemClicked', 'Click'], defaultEvent: 'ItemClicked',
+    defaults: (n) => ({ Text: n, Dock: 'Bottom' }),
+    propDefaults: { Dock: 'Bottom' },
+  },
+  ContextMenuStrip: {
+    title: 'ContextMenuStrip', desc: 'Sağ tık menüsü', icon: '\u{1F5B1}', prefix: 'contextMenuStrip', component: true, strip: 'context',
+    props: ['Name', 'StripItems', 'BackColor', 'ForeColor', 'Font', 'Enabled', 'Tag'],
+    events: ['Opening', 'ItemClicked'], defaultEvent: 'Opening',
+    defaults: () => ({}),
+  },
+  ToolTip: {
+    title: 'ToolTip', desc: 'Kontrollere ipucu balonu ekler', icon: '\u{1F4AC}', prefix: 'toolTip', component: true,
+    props: ['Name', 'IsBalloon', 'ToolTipTitle', 'Tag'],
+    events: [], defaultEvent: null,
+    defaults: () => ({}),
+  },
+  ErrorProvider: {
+    title: 'ErrorProvider', desc: 'Hatalı girişin yanında uyarı simgesi', icon: '❗', prefix: 'errorProvider', component: true,
+    props: ['Name', 'BlinkStyle', 'Tag'],
+    events: [], defaultEvent: null,
+    defaults: () => ({}),
+  },
+  OpenFileDialog: {
+    title: 'OpenFileDialog', desc: 'Dosya aç penceresi', icon: '\u{1F4C2}', prefix: 'openFileDialog', component: true, noContainer: true,
+    props: ['Name', 'FileName', 'Filter', 'FilterIndex', 'Title', 'DefaultExt', 'InitialDirectory', 'Multiselect', 'Tag'],
+    events: ['FileOk'], defaultEvent: 'FileOk',
+    defaults: (n) => ({ FileName: n }),
+  },
+  SaveFileDialog: {
+    title: 'SaveFileDialog', desc: 'Farklı kaydet penceresi', icon: '\u{1F4BE}', prefix: 'saveFileDialog', component: true, noContainer: true,
+    props: ['Name', 'FileName', 'Filter', 'FilterIndex', 'Title', 'DefaultExt', 'InitialDirectory', 'OverwritePrompt', 'Tag'],
+    events: ['FileOk'], defaultEvent: 'FileOk',
+    defaults: () => ({}),
+  },
   Timer: {
     title: 'Timer', desc: 'Zamanlayıcı (görünmez)', icon: '⏱', prefix: 'timer', component: true,
     props: ['Name', 'TimerEnabled', 'Interval', 'Tag'],
@@ -331,18 +442,74 @@ PROPS.TrackMinimum = { type: 'int', cat: 'Davranış', def: 0, code: 'Minimum' }
 PROPS.TrackMaximum = { type: 'int', cat: 'Davranış', def: 10, code: 'Maximum' };
 PROPS.TrackValue = { type: 'int', cat: 'Davranış', def: 0, code: 'Value' };
 
+// Menü ve araç çubuğu öğeleri (ToolStripItem türleri). Araç kutusunda görünmezler.
+const ITEM_COMMON = ['Name', 'Text', 'Enabled', 'Visible', 'ToolTipText', 'BackColor', 'ForeColor', 'Font', 'Tag'];
+export const STRIP_ITEMS = {
+  ToolStripMenuItem: {
+    title: 'ToolStripMenuItem', label: 'Menü öğesi', prefix: 'toolStripMenuItem', ui: 'TSMenuItem', parentOf: true,
+    props: [...ITEM_COMMON, 'StripItems', 'Checked', 'CheckOnClick', 'ShortcutKeys', 'ShowShortcutKeys', 'DisplayStyle'],
+    events: ['Click', 'CheckedChanged', 'DropDownOpening', 'DropDownOpened', 'DropDownClosed', 'DropDownItemClicked', 'MouseEnter', 'MouseLeave'], defaultEvent: 'Click',
+  },
+  ToolStripButton: {
+    title: 'ToolStripButton', label: 'Düğme', prefix: 'toolStripButton', ui: 'TSButton',
+    props: [...ITEM_COMMON, 'DisplayStyle', 'Checked', 'CheckOnClick', 'ItemAlignment'],
+    events: ['Click', 'CheckedChanged', 'MouseEnter', 'MouseLeave'], defaultEvent: 'Click',
+  },
+  ToolStripLabel: {
+    title: 'ToolStripLabel', label: 'Etiket', prefix: 'toolStripLabel', ui: 'TSLabel',
+    props: [...ITEM_COMMON, 'DisplayStyle', 'IsLink', 'ItemAlignment'],
+    events: ['Click', 'TextChanged'], defaultEvent: 'Click',
+  },
+  ToolStripStatusLabel: {
+    title: 'ToolStripStatusLabel', label: 'Durum etiketi', prefix: 'toolStripStatusLabel', ui: 'TSStatusLabel',
+    props: [...ITEM_COMMON, 'Spring', 'IsLink', 'DisplayStyle', 'ItemAlignment'],
+    events: ['Click', 'TextChanged'], defaultEvent: 'Click',
+  },
+  ToolStripSeparator: {
+    title: 'ToolStripSeparator', label: 'Ayırıcı', prefix: 'toolStripSeparator', ui: 'TSSeparator',
+    props: ['Name', 'Visible', 'Tag'], events: [], defaultEvent: null,
+  },
+  ToolStripTextBox: {
+    title: 'ToolStripTextBox', label: 'Metin kutusu', prefix: 'toolStripTextBox', ui: 'TSTextBox',
+    props: [...ITEM_COMMON, 'ItemAlignment'], events: ['TextChanged', 'KeyDown', 'KeyPress', 'Click'], defaultEvent: 'Click',
+  },
+  ToolStripComboBox: {
+    title: 'ToolStripComboBox', label: 'Açılır liste', prefix: 'toolStripComboBox', ui: 'TSComboBox',
+    props: [...ITEM_COMMON, 'Items', 'DropDownStyle', 'ItemAlignment'], events: ['SelectedIndexChanged', 'TextChanged', 'Click'], defaultEvent: 'Click',
+  },
+  ToolStripProgressBar: {
+    title: 'ToolStripProgressBar', label: 'İlerleme çubuğu', prefix: 'toolStripProgressBar', ui: 'TSProgressBar',
+    props: ['Name', 'Enabled', 'Visible', 'ToolTipText', 'IntMinimum', 'IntMaximum', 'IntValue', 'ProgressStyle', 'ItemAlignment', 'Tag'], events: ['Click'], defaultEvent: 'Click',
+  },
+  ToolStripDropDownButton: {
+    title: 'ToolStripDropDownButton', label: 'Açılır düğme', prefix: 'toolStripDropDownButton', ui: 'TSDropDownButton', parentOf: true,
+    props: [...ITEM_COMMON, 'StripItems', 'DisplayStyle', 'ItemAlignment'], events: ['Click', 'DropDownItemClicked', 'DropDownOpening'], defaultEvent: 'Click',
+  },
+};
+for (const [k, v] of Object.entries(STRIP_ITEMS)) CONTROLS[k] = { ...v, desc: v.label, item: true, defaults: () => ({}) };
+
+/** Çubuk türüne göre eklenebilecek öğeler. */
+export const STRIP_ADDABLE = {
+  menu: ['ToolStripMenuItem', 'ToolStripComboBox', 'ToolStripTextBox'],
+  tool: ['ToolStripButton', 'ToolStripLabel', 'ToolStripDropDownButton', 'ToolStripSeparator', 'ToolStripComboBox', 'ToolStripTextBox', 'ToolStripProgressBar'],
+  status: ['ToolStripStatusLabel', 'ToolStripProgressBar', 'ToolStripDropDownButton'],
+  dropdown: ['ToolStripMenuItem', 'ToolStripSeparator', 'ToolStripComboBox', 'ToolStripTextBox'],
+};
+
 export const FORM_INFO = {
   title: 'Form',
-  props: ['Name', 'Text', 'ClientSize', 'BackColor', 'ForeColor', 'Font', 'StartPosition', 'FormBorderStyle', 'MaximizeBox', 'MinimizeBox', 'ControlBox', 'ShowInTaskbar', 'TopMost', 'WindowState', 'Opacity', 'KeyPreview', 'AcceptButton', 'CancelButton', 'Cursor', 'Enabled', 'Tag'],
+  props: ['Name', 'Text', 'ClientSize', 'BackColor', 'ForeColor', 'Font', 'StartPosition', 'FormBorderStyle', 'MaximizeBox', 'MinimizeBox', 'ControlBox', 'ShowInTaskbar', 'TopMost', 'WindowState', 'Opacity', 'KeyPreview', 'AcceptButton', 'CancelButton', 'MainMenuStrip', 'ContextMenuStrip', 'Cursor', 'Enabled', 'Tag'],
   events: ['Load', 'Shown', 'Activated', 'FormClosing', 'FormClosed', 'Click', 'DoubleClick', 'MouseClick', 'MouseDown', 'MouseUp', 'MouseMove', 'KeyDown', 'KeyUp', 'KeyPress', 'Resize'],
   defaultEvent: 'Load',
 };
 
 export const TOOLBOX_GROUPS = [
-  { title: 'Ortak Kontroller', items: ['Button', 'Label', 'TextBox', 'CheckBox', 'RadioButton', 'ComboBox', 'ListBox', 'CheckedListBox', 'PictureBox', 'NumericUpDown', 'DateTimePicker', 'ProgressBar', 'TrackBar', 'LinkLabel', 'RichTextBox'] },
-  { title: 'Kapsayıcılar', items: ['GroupBox', 'Panel'] },
+  { title: 'Ortak Kontroller', items: ['Button', 'Label', 'TextBox', 'MaskedTextBox', 'CheckBox', 'RadioButton', 'ComboBox', 'ListBox', 'CheckedListBox', 'PictureBox', 'NumericUpDown', 'DateTimePicker', 'ProgressBar', 'TrackBar', 'LinkLabel', 'RichTextBox'] },
+  { title: 'Kapsayıcılar', items: ['GroupBox', 'Panel', 'TabControl'] },
+  { title: 'Menüler ve Araç Çubukları', items: ['MenuStrip', 'ToolStrip', 'StatusStrip', 'ContextMenuStrip'] },
   { title: 'Veri', items: ['DataGridView'] },
-  { title: 'Bileşenler', items: ['Timer'] },
+  { title: 'Bileşenler', items: ['Timer', 'ToolTip', 'ErrorProvider'] },
+  { title: 'İletişim Kutuları', items: ['OpenFileDialog', 'SaveFileDialog'] },
 ];
 
 /** Bir özelliğin bu kontrol türündeki varsayılan değeri. */
