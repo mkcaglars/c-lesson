@@ -130,6 +130,9 @@ namespace MiniWinForms
         internal static void Create(int id, string type) => Add("[\"c\"," + id + "," + J(type) + "]");
         internal static void Destroy(int id) => Add("[\"d\"," + id + "]");
         internal static void Parent(int id, int parentId) => Add("[\"p\"," + id + "," + parentId + "]");
+        /// <summary>Programın kaydettiği dosyayı kullanıcıya indirme bağlantısı olarak sunar.</summary>
+        internal static void Download(string name, string base64) => Add("[\"dl\"," + J(name) + "," + J(base64) + "]");
+
         internal static void Call(int id, string method, string arg = "") => Add("[\"m\"," + id + "," + J(method) + "," + J(arg) + "]");
 
         internal static void Set(int id, string prop, string value)
@@ -181,6 +184,7 @@ namespace MiniWinForms
                 }
             }
             if (depth == 0) Guard.EndTurn();
+            if (depth == 0) System.Windows.Forms.VirtualFiles.CheckWatched();
             if (lazySets.Count > 0)
             {
                 var pending = new List<KeyValuePair<(int, string), Func<string>>>(lazySets);
@@ -273,6 +277,8 @@ namespace MiniWinForms
                 if (o is Timer t) t.Enabled = false;
             }
             Application.ResetState();
+            System.Windows.Forms.VirtualFiles.Reset();
+            System.Windows.Forms.BindingContext.Reset();
             objects.Clear();
             lazySets.Clear();
             posted.Clear();

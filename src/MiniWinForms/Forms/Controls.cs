@@ -417,9 +417,278 @@ namespace System.Windows.Forms
         public int Find(string str) => Text.IndexOf(str ?? "", StringComparison.Ordinal);
     }
 
+    public enum MaskFormat { ExcludePromptAndLiterals = 0, IncludePrompt = 1, IncludeLiterals = 2, IncludePromptAndLiterals = 3 }
+    public enum InsertKeyMode { Default = 0, Insert = 1, Overwrite = 2 }
+    public delegate void MaskInputRejectedEventHandler(object sender, MaskInputRejectedEventArgs e);
+    public class MaskInputRejectedEventArgs : EventArgs
+    {
+        public MaskInputRejectedEventArgs(int position, System.ComponentModel.MaskedTextResultHint rejectionHint) { Position = position; RejectionHint = rejectionHint; }
+        public int Position { get; }
+        public System.ComponentModel.MaskedTextResultHint RejectionHint { get; }
+    }
+    public delegate void TypeValidationEventHandler(object sender, TypeValidationEventArgs e);
+    public class TypeValidationEventArgs : EventArgs
+    {
+        public TypeValidationEventArgs(Type validatingType, bool isValidInput, object returnValue, string message)
+        { ValidatingType = validatingType; IsValidInput = isValidInput; ReturnValue = returnValue; Message = message; }
+        public Type ValidatingType { get; }
+        public bool IsValidInput { get; }
+        public object ReturnValue { get; }
+        public string Message { get; }
+        public bool Cancel { get; set; }
+    }
+
+    /// <summary>
+    /// Maskeli metin kutusu (ör. telefon "(999) 000-0000", tarih "00/00/0000").
+    /// Maske kuralları WinForms ile aynıdır: 0 rakam (zorunlu), 9 rakam/boşluk, # rakam/+/-, L harf (zorunlu), ? harf,
+    /// &amp; herhangi karakter (zorunlu), C herhangi, A harf/rakam (zorunlu), a harf/rakam, &lt; küçük harf, &gt; büyük harf, \ kaçış.
+    /// </summary>
     public class MaskedTextBox : TextBox
     {
-        public string Mask { get; set; } = "";
+        static readonly object EvMaskInputRejected = new object(), EvTypeValidationCompleted = new object(), EvMaskChanged = new object();
+        internal struct Slot { public char Kind; public char Literal; public char Case; public bool Edit => Kind != '\0'; public bool Required => Kind is '0' or 'L' or '&' or 'A'; }
+        string mask = "";
+        Slot[] slots = new Slot[0];
+        char[] values = new char[0];
+        char promptChar = '_';
+        MaskFormat textMaskFormat = MaskFormat.IncludeLiterals;
+        System.Globalization.CultureInfo culture;
+
+        public MaskedTextBox() { }
+        public MaskedTextBox(string mask) : this() { Mask = mask; }
+
+        internal override string UiType => "MaskedTextBox";
+
+        public string Mask
+        {
+            get => mask;
+            set
+            {
+                string text = Text;
+                mask = value ?? "";
+                Parse();
+                Ui.Set(Id, "mask", MaskJson());
+                SetValue(text, false);
+                Ev.Fire(Events[EvMaskChanged], this, EventArgs.Empty);
+            }
+        }
+
+        public char PromptChar { get => promptChar; set { promptChar = value; Ui.Set(Id, "mask", MaskJson()); SendDisplay(); } }
+        public MaskFormat TextMaskFormat { get => textMaskFormat; set => textMaskFormat = value; }
+        public MaskFormat CutCopyMaskFormat { get; set; } = MaskFormat.IncludeLiterals;
+        public System.Globalization.CultureInfo Culture { get => culture ?? System.Globalization.CultureInfo.CurrentCulture; set { culture = value; Mask = mask; } }
+        public bool HidePromptOnLeave { get; set; }
+        public bool BeepOnError { get; set; }
+        public bool AllowPromptAsInput { get; set; } = true;
+        public bool AsciiOnly { get; set; }
+        public bool RejectInputOnFirstFailure { get; set; }
+        public bool ResetOnPrompt { get; set; } = true;
+        public bool ResetOnSpace { get; set; } = true;
+        public bool SkipLiterals { get; set; } = true;
+        public InsertKeyMode InsertKeyMode { get; set; }
+        public bool IsOverwriteMode => InsertKeyMode == InsertKeyMode.Overwrite;
+        public Type ValidatingType { get; set; }
+        public IFormatProvider FormatProvider { get; set; }
+        public System.ComponentModel.MaskedTextProvider MaskedTextProvider => null;
+
+        /// <summary>Zorunlu (0, L, &amp;, A) bütün yerler dolu mu?</summary>
+        public bool MaskCompleted
+        {
+            get
+            {
+                for (int i = 0; i < slots.Length; i++) if (slots[i].Required && values[i] == '\0') return false;
+                return true;
+            }
+        }
+
+        /// <summary>Bütün giriş yerleri dolu mu?</summary>
+        public bool MaskFull
+        {
+            get
+            {
+                for (int i = 0; i < slots.Length; i++) if (slots[i].Edit && values[i] == '\0') return false;
+                return true;
+            }
+        }
+
+        public event MaskInputRejectedEventHandler MaskInputRejected { add => Events.AddHandler(EvMaskInputRejected, value); remove => Events.RemoveHandler(EvMaskInputRejected, value); }
+        public event TypeValidationEventHandler TypeValidationCompleted { add => Events.AddHandler(EvTypeValidationCompleted, value); remove => Events.RemoveHandler(EvTypeValidationCompleted, value); }
+        public event EventHandler MaskChanged { add => Events.AddHandler(EvMaskChanged, value); remove => Events.RemoveHandler(EvMaskChanged, value); }
+
+        void Parse()
+        {
+            var list = new List<Slot>();
+            var c = Culture;
+            char caseMode = '\0';
+            for (int i = 0; i < mask.Length; i++)
+            {
+                char m = mask[i];
+                switch (m)
+                {
+                    case '\\':
+                        if (i + 1 < mask.Length) list.Add(new Slot { Literal = mask[++i] });
+                        break;
+                    case '<': caseMode = 'L'; break;
+                    case '>': caseMode = 'U'; break;
+                    case '|': caseMode = '\0'; break;
+                    case '0': case '9': case '#': case 'L': case '?': case '&': case 'C': case 'A': case 'a':
+                        list.Add(new Slot { Kind = m, Case = caseMode });
+                        break;
+                    case '.': AddLiterals(list, c.NumberFormat.NumberDecimalSeparator); break;
+                    case ',': AddLiterals(list, c.NumberFormat.NumberGroupSeparator); break;
+                    case ':': AddLiterals(list, c.DateTimeFormat.TimeSeparator); break;
+                    case '/': AddLiterals(list, c.DateTimeFormat.DateSeparator); break;
+                    case '$': AddLiterals(list, c.NumberFormat.CurrencySymbol); break;
+                    default: list.Add(new Slot { Literal = m }); break;
+                }
+            }
+            slots = list.ToArray();
+            values = new char[slots.Length];
+        }
+
+        static void AddLiterals(List<Slot> list, string s) { foreach (char ch in s) list.Add(new Slot { Literal = ch }); }
+
+        internal static bool Accepts(char kind, char ch) => kind switch
+        {
+            '0' => char.IsDigit(ch),
+            '9' => char.IsDigit(ch) || ch == ' ',
+            '#' => char.IsDigit(ch) || ch == ' ' || ch == '+' || ch == '-',
+            'L' => char.IsLetter(ch),
+            '?' => char.IsLetter(ch) || ch == ' ',
+            '&' => !char.IsControl(ch) && ch != ' ',
+            'C' => !char.IsControl(ch),
+            'A' => char.IsLetterOrDigit(ch),
+            'a' => char.IsLetterOrDigit(ch) || ch == ' ',
+            _ => false,
+        };
+
+        static char ApplyCase(Slot s, char ch, System.Globalization.CultureInfo c) =>
+            s.Case == 'U' ? char.ToUpper(ch, c) : s.Case == 'L' ? char.ToLower(ch, c) : ch;
+
+        string MaskJson()
+        {
+            var sb = new StringBuilder("{\"p\":").Append(Ui.J(promptChar.ToString())).Append(",\"s\":[");
+            for (int i = 0; i < slots.Length; i++)
+            {
+                if (i > 0) sb.Append(',');
+                if (slots[i].Edit) sb.Append("{\"k\":").Append(Ui.J(slots[i].Kind.ToString())).Append(slots[i].Case != '\0' ? ",\"c\":" + Ui.J(slots[i].Case.ToString()) : "").Append('}');
+                else sb.Append("{\"l\":").Append(Ui.J(slots[i].Literal.ToString())).Append('}');
+            }
+            return sb.Append("]}").ToString();
+        }
+
+        /// <summary>Ekranda görünen metin (boş yerlerde PromptChar).</summary>
+        string Display()
+        {
+            var sb = new StringBuilder(slots.Length);
+            for (int i = 0; i < slots.Length; i++) sb.Append(slots[i].Edit ? (values[i] == '\0' ? promptChar : values[i]) : slots[i].Literal);
+            return sb.ToString();
+        }
+
+        string Format(MaskFormat f)
+        {
+            if (mask.Length == 0) return base.Text;
+            bool lit = f == MaskFormat.IncludeLiterals || f == MaskFormat.IncludePromptAndLiterals;
+            bool prompt = f == MaskFormat.IncludePrompt || f == MaskFormat.IncludePromptAndLiterals;
+            var sb = new StringBuilder();
+            int keep = 0;
+            for (int i = 0; i < slots.Length; i++)
+            {
+                if (!slots[i].Edit)
+                {
+                    if (!lit) continue;
+                    sb.Append(slots[i].Literal);
+                    keep = sb.Length;
+                }
+                else if (values[i] != '\0') { sb.Append(values[i]); keep = sb.Length; }
+                else { sb.Append(prompt ? promptChar : ' '); if (prompt) keep = sb.Length; }
+            }
+            // Sondaki boş giriş yerleri (WinForms'taki gibi) metne katılmaz.
+            return sb.ToString(0, keep);
+        }
+
+        public override string Text
+        {
+            get => mask.Length == 0 ? base.Text : Format(textMaskFormat);
+            set
+            {
+                if (mask.Length == 0) { base.Text = value; return; }
+                SetValue(value, true);
+            }
+        }
+
+        public override int MaxLength { get => mask.Length == 0 ? base.MaxLength : slots.Length; set => base.MaxLength = value; }
+
+        void SetValue(string value, bool raise)
+        {
+            if (mask.Length == 0) { base.Text = value; return; }
+            string before = Display();
+            Array.Clear(values, 0, values.Length);
+            int pos = 0;
+            var c = Culture;
+            foreach (char ch in value ?? "")
+            {
+                if (pos >= slots.Length) break;
+                if (!slots[pos].Edit && slots[pos].Literal == ch) { pos++; continue; }
+                while (pos < slots.Length && !slots[pos].Edit) pos++;
+                if (pos >= slots.Length) break;
+                if (ch == promptChar || (ch == ' ' && !Accepts(slots[pos].Kind, ' '))) { pos++; continue; }
+                if (Accepts(slots[pos].Kind, ch)) values[pos++] = ApplyCase(slots[pos - 1], ch, c);
+            }
+            string after = Display();
+            SetTextSilently(after);
+            Ui.Set(Id, "text", after);
+            if (raise && after != before) OnTextChanged(EventArgs.Empty);
+        }
+
+        void SendDisplay() { string d = Display(); SetTextSilently(d); Ui.Set(Id, "text", d); }
+
+        internal override string HandleUiEvent(string evt, string data)
+        {
+            if (mask.Length > 0 && evt == "input")
+            {
+                // Tarayıcı maskeyi uygulayıp ekrandaki metni gönderir: yer yer okunur.
+                string before = Display();
+                var c = Culture;
+                for (int i = 0; i < slots.Length; i++)
+                {
+                    if (!slots[i].Edit) continue;
+                    char ch = i < data.Length ? data[i] : promptChar;
+                    values[i] = ch == promptChar || !Accepts(slots[i].Kind, ch) ? '\0' : ApplyCase(slots[i], ch, c);
+                }
+                string after = Display();
+                SetTextSilently(after);
+                if (after != data) Ui.Set(Id, "text", after);
+                if (after != before) { Modified = true; OnTextChanged(EventArgs.Empty); }
+                return "";
+            }
+            if (evt == "reject")
+            {
+                int.TryParse(data, out int p);
+                (Events[EvMaskInputRejected] as MaskInputRejectedEventHandler)?.Invoke(this, new MaskInputRejectedEventArgs(p, System.ComponentModel.MaskedTextResultHint.LetterExpected));
+                return "";
+            }
+            return base.HandleUiEvent(evt, data);
+        }
+
+        /// <summary>ValidatingType'a göre metni çevirir (ör. DateTime).</summary>
+        public object ValidateText()
+        {
+            if (ValidatingType == null) return null;
+            try { return Convert.ChangeType(Format(MaskFormat.IncludeLiterals), ValidatingType, Culture); }
+            catch { return null; }
+        }
+
+        protected override void OnLeave(EventArgs e)
+        {
+            base.OnLeave(e);
+            if (ValidatingType != null)
+            {
+                object v = ValidateText();
+                var args = new TypeValidationEventArgs(ValidatingType, v != null, v, v != null ? "" : "Değer " + ValidatingType.Name + " türüne çevrilemedi.");
+                (Events[EvTypeValidationCompleted] as TypeValidationEventHandler)?.Invoke(this, args);
+            }
+        }
     }
 
     // ======================= Listeler =======================
@@ -1057,19 +1326,27 @@ namespace System.Windows.Forms
         public Image Image
         {
             get => image;
-            set { image = value; imageLocation = value?.Url ?? ""; Ui.Set(Id, "image", imageLocation); }
+            set { image = value; Ui.Set(Id, "image", value?.Url ?? ""); FitImage(); }
         }
 
         public string ImageLocation
         {
             get => imageLocation;
-            set { imageLocation = value ?? ""; image = string.IsNullOrEmpty(value) ? null : new Bitmap(value); Ui.Set(Id, "image", imageLocation); }
+            set { imageLocation = value ?? ""; image = string.IsNullOrEmpty(value) ? null : new Bitmap(value); Ui.Set(Id, "image", image?.Url ?? ""); FitImage(); }
+        }
+
+        /// <summary>SizeMode = AutoSize ise kutu resmin boyutunu alır.</summary>
+        void FitImage()
+        {
+            if (sizeMode != PictureBoxSizeMode.AutoSize || image == null || image.Width <= 0) return;
+            int extra = borderStyle == BorderStyle.None ? 0 : 2;
+            Size = new Size(image.Width + extra, image.Height + extra);
         }
 
         public Image InitialImage { get; set; }
         public Image ErrorImage { get; set; }
         public bool WaitOnLoad { get; set; }
-        public PictureBoxSizeMode SizeMode { get => sizeMode; set { sizeMode = value; Ui.Set(Id, "sizemode", value.ToString()); } }
+        public PictureBoxSizeMode SizeMode { get => sizeMode; set { sizeMode = value; Ui.Set(Id, "sizemode", value.ToString()); FitImage(); } }
         public BorderStyle BorderStyle { get => borderStyle; set { borderStyle = value; Ui.Set(Id, "borderstyle", value.ToString()); } }
         public override bool CanFocus => false;
 

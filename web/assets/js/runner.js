@@ -161,6 +161,7 @@ export class Desktop {
   /** Beklenebilir iletişim kutusu (MessageBox / InputBox). */
   showDialog(requestId, kind, json) {
     const data = JSON.parse(json);
+    if (kind === 'openfile' || kind === 'savefile') return this.showFileDialog(requestId, kind, data);
     const box = document.createElement('div');
     box.className = 'wf-window wf-dialog';
     const title = kind === 'inputbox' ? data.title : data.caption;
@@ -292,6 +293,9 @@ export class Desktop {
       case 'reset':
         this.clear();
         this.running = true;
+        return;
+      case 'dl':
+        this.hooks.onDownload?.(op[1], op[2]);
         return;
       default:
     }
@@ -800,7 +804,7 @@ export class Desktop {
         if (item.editor?.input === e.target) this.dispatch(item.id, 'edittext', e.target.value);
         return;
       }
-      if (item.type === 'TextBox' || item.type === 'TSTextBox' || (item.type === 'ComboBox' && e.target === item.input)) {
+      if (item.type === 'TextBox' || item.type === 'MaskedTextBox' || item.type === 'TSTextBox' || (item.type === 'ComboBox' && e.target === item.input)) {
         this.dispatch(item.id, 'input', e.target.value);
       } else if (item.type === 'TrackBar') {
         this.dispatch(item.id, 'input', e.target.value);
@@ -836,6 +840,20 @@ export class Desktop {
       if (item.type === 'ComboBox') this.comboMouse(item, e);
       else if (item.type === 'ListBox' || item.type === 'CheckedListBox') this.listMouse(item, e);
       else if (item.type === 'DataGridView') this.gridMouse(item, e, false);
+      else if (item.type === 'TabControl') {
+        const tab = e.target.closest('.wf-tab');
+        if (tab && item.header.contains(tab)) {
+          e.preventDefault();
+          this.dispatch(item.id, 'select', tab.dataset.tab);
+        }
+      }
+    });
+    // Maskeli metin kutusu: girilen karakterler maskeye göre yerleştirilir.
+    root.addEventListener('beforeinput', (e) => {
+      const item = this.itemFrom(e.target);
+      if (item?.type !== 'MaskedTextBox' || !item.mask?.s?.length || e.target !== item.input) return;
+      e.preventDefault();
+      this.maskedInput(item, e);
     });
     root.addEventListener('dblclick', (e) => {
       const item = this.itemFrom(e.target);
@@ -1196,5 +1214,200 @@ export class Desktop {
         return;
       default:
     }
+  }
+
+  // ------------------------------------------------------------------ Dosya Aç / Kaydet iletişim kutuları
+
+  showFileDialog(requestId, kind, data) {
+    const open = kind === 'openfile';
+    const box = document.createElement('div');
+    box.className = 'wf-window wf-dialog wf-filedialog';
+    box.innerHTML = `
+      <div class="wf-titlebar"><span class="wf-title"></span>
+        <span class="wf-caption-buttons"><button class="wf-cap wf-close" tabindex="-1">&#10005;</button></span></div>
+      <div class="wf-fd-path">🖥 Bu bilgisayar › 📁 Belgeler</div>
+      <div class="wf-fd-list" tabindex="0"></div>
+      <div class="wf-fd-row"><label>Dosya adı:</label><input class="wf-fd-name" spellcheck="false"><select class="wf-fd-filter"></select></div>
+      <div class="wf-fd-note"></div>
+      <div class="wf-dialog-buttons"><button class="wf-button wf-dialog-button wf-fd-pick" type="button">💻 Bilgisayardan seç…</button><span style="flex:1"></span>
+        <button class="wf-button wf-dialog-button wf-fd-ok" type="button"></button><button class="wf-button wf-dialog-button wf-fd-cancel" type="button">İptal</button></div>`;
+    box.querySelector('.wf-title').textContent = data.title || (open ? 'Aç' : 'Farklı Kaydet');
+    box.querySelector('.wf-fd-ok').textContent = open ? 'Aç' : 'Kaydet';
+    const list = box.querySelector('.wf-fd-list');
+    const nameInput = box.querySelector('.wf-fd-name');
+    const filterSel = box.querySelector('.wf-fd-filter');
+    const note = box.querySelector('.wf-fd-note');
+    const pick = box.querySelector('.wf-fd-pick');
+    if (!open) pick.remove();
+    const filters = data.filters?.length ? data.filters : [{ n: 'Tüm Dosyalar', p: '*.*' }];
+    filters.forEach((f, i) => filterSel.appendChild(new Option(`${f.n}`, String(i))));
+    filterSel.value = String(Math.min(filters.length, data.index || 1) - 1);
+    nameInput.value = data.fileName || '';
+    note.textContent = open
+      ? 'Web ortamında bilgisayarınızdaki dosyayı "Bilgisayardan seç" ile açın. Daha önce açılan/kaydedilen dosyalar yukarıda listelenir.'
+      : 'Kaydedilen dosya program yazdıktan sonra "Çıktı" bölümünde indirme bağlantısı olarak görünür.';
+
+    const patterns = () => filters[Number(filterSel.value)]?.p.split(';').map((x) => x.trim().toLowerCase()).filter(Boolean) || ['*.*'];
+    const matches = (name) => patterns().some((p) => {
+      if (p === '*.*' || p === '*') return true;
+      const re = new RegExp('^' + p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$', 'i');
+      return re.test(name);
+    });
+    const fmtSize = (n) => (n < 1024 ? `${n} B` : n < 1048576 ? `${Math.ceil(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`);
+    const renderList = () => {
+      list.innerHTML = '';
+      const files = (data.files || []).filter((f) => matches(f.n));
+      if (!files.length) list.innerHTML = '<div class="wf-fd-empty">Bu klasörde dosya yok.</div>';
+      for (const f of files) {
+        const row = document.createElement('div');
+        row.className = 'wf-fd-item';
+        row.innerHTML = '<span class="wf-fd-icon">📄</span><span class="wf-fd-fname"></span><span class="wf-fd-size"></span>';
+        row.querySelector('.wf-fd-fname').textContent = f.n;
+        row.querySelector('.wf-fd-size').textContent = fmtSize(f.s);
+        row.onclick = () => {
+          list.querySelectorAll('.wf-fd-item.selected').forEach((x) => x.classList.remove('selected'));
+          row.classList.add('selected');
+          nameInput.value = f.n;
+        };
+        row.ondblclick = () => ok();
+        list.appendChild(row);
+      }
+    };
+    filterSel.onchange = renderList;
+    renderList();
+
+    const finish = (result) => {
+      box.remove();
+      this.dialogs = this.dialogs.filter((d) => d !== box);
+      this.updateModal();
+      if (!this.running || !this.engine) return;
+      try { this.engine.CompleteDialog(requestId, result); } catch (e) { console.error(e); }
+    };
+    const head = () => `OK${Number(filterSel.value) + 1}`;
+    const exists = (n) => (data.files || []).some((f) => f.n.toLowerCase() === n.toLowerCase());
+    const ok = () => {
+      let n = nameInput.value.trim().replace(/^.*[\\/]/, '');
+      if (!n) { nameInput.focus(); return; }
+      if (/[<>:"|?*]/.test(n)) { note.textContent = 'Dosya adı şu karakterleri içeremez: < > : " | ? *'; return; }
+      if (open) {
+        const found = (data.files || []).find((f) => f.n.toLowerCase() === n.toLowerCase());
+        if (!found) { note.textContent = `"${n}" bulunamadı. Bilgisayarınızdaki bir dosya için "Bilgisayardan seç" düğmesini kullanın.`; return; }
+        finish(`${head()}\n${found.n}\t`);
+        return;
+      }
+      if (!/\.[^.]+$/.test(n)) {
+        const p = patterns()[0] || '';
+        const ext = data.ext ? data.ext.replace(/^\./, '') : /^\*\.[a-z0-9]+$/i.test(p) ? p.substring(2) : '';
+        if (ext) n += '.' + ext;
+      }
+      if (data.overwrite && exists(n) && !window.confirm(`${n} zaten var.\nDeğiştirmek istiyor musunuz?`)) return;
+      finish(`${head()}\n${n}`);
+    };
+    box.querySelector('.wf-fd-ok').onclick = ok;
+    box.querySelector('.wf-fd-cancel').onclick = () => finish('');
+    box.querySelector('.wf-close').onclick = () => finish('');
+    if (open) {
+      pick.onclick = () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        if (data.multi) input.multiple = true;
+        const acc = patterns().filter((p) => p !== '*.*' && p !== '*').map((p) => p.replace(/^\*/, ''));
+        if (acc.length) input.accept = acc.join(',');
+        input.onchange = async () => {
+          const files = [...input.files];
+          if (!files.length) return;
+          const big = files.find((f) => f.size > 8 * 1048576);
+          if (big) { note.textContent = `${big.name} çok büyük (en fazla 8 MB).`; return; }
+          const parts = await Promise.all(files.map((f) => new Promise((resolve) => {
+            const r = new FileReader();
+            r.onload = () => resolve(`${f.name.replace(/[\t\n]/g, ' ')}\t${String(r.result).split(',')[1] || ''}`);
+            r.onerror = () => resolve('');
+            r.readAsDataURL(f);
+          })));
+          finish(`${head()}\n${parts.filter(Boolean).join('\n')}`);
+        };
+        input.click();
+      };
+    }
+    box.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); finish(''); }
+      if (e.key === 'Enter' && e.target.tagName !== 'BUTTON') { e.preventDefault(); ok(); }
+      e.stopPropagation();
+    });
+    this.makeDraggable(box, null);
+    this.root.appendChild(box);
+    this.dialogs.push(box);
+    box.style.zIndex = 100000 + this.dialogs.length;
+    const r = this.root.getBoundingClientRect();
+    box.style.left = Math.max(0, (r.width - box.offsetWidth) / 2) + 'px';
+    box.style.top = Math.max(0, (r.height - box.offsetHeight) / 3) + 'px';
+    setTimeout(() => (open ? pick : nameInput).focus(), 0);
+    this.updateModal();
+  }
+
+  // ------------------------------------------------------------------ MaskedTextBox
+
+  maskedInput(item, e) {
+    const { s: slots, p: prompt } = item.mask;
+    const input = item.input;
+    if (input.readOnly) return;
+    const chars = [...input.value.padEnd(slots.length, prompt)].slice(0, slots.length);
+    for (let i = 0; i < slots.length; i++) if (slots[i].l != null) chars[i] = slots[i].l;
+    let start = input.selectionStart ?? 0;
+    let end = input.selectionEnd ?? start;
+    const clear = (a, b) => { for (let i = a; i < b && i < slots.length; i++) if (slots[i].k) chars[i] = prompt; };
+    const accepts = (k, ch) => {
+      switch (k) {
+        case '0': return /\d/.test(ch);
+        case '9': return /[\d ]/.test(ch);
+        case '#': return /[\d +-]/.test(ch);
+        case 'L': return /\p{L}/u.test(ch);
+        case '?': return /[\p{L} ]/u.test(ch);
+        case '&': return ch !== ' ' && !/\p{C}/u.test(ch);
+        case 'C': return !/\p{C}/u.test(ch);
+        case 'A': return /[\p{L}\d]/u.test(ch);
+        case 'a': return /[\p{L}\d ]/u.test(ch);
+        default: return false;
+      }
+    };
+    const caseOf = (slot, ch) => (slot.c === 'U' ? ch.toLocaleUpperCase('tr-TR') : slot.c === 'L' ? ch.toLocaleLowerCase('tr-TR') : ch);
+    const nextEdit = (i) => { while (i < slots.length && !slots[i].k) i++; return i; };
+    let caret = start;
+    let rejected = -1;
+    const type = e.inputType;
+    if (type === 'deleteContentBackward') {
+      if (end > start) clear(start, end);
+      else {
+        let i = start - 1;
+        while (i >= 0 && !slots[i].k) i--;
+        if (i >= 0) { chars[i] = prompt; caret = i; }
+      }
+      if (end > start) caret = start;
+    } else if (type === 'deleteContentForward' || type === 'deleteByCut' || type === 'deleteWordBackward' || type === 'deleteWordForward') {
+      if (end > start) clear(start, end);
+      else { const i = nextEdit(start); if (i < slots.length) chars[i] = prompt; }
+      caret = start;
+    } else if (type.startsWith('insert')) {
+      const text = (e.data ?? e.dataTransfer?.getData('text/plain') ?? '').replace(/\r?\n/g, '');
+      if (end > start) clear(start, end);
+      let pos = start;
+      for (const ch of text) {
+        if (pos >= slots.length) break;
+        if (slots[pos].l != null && slots[pos].l === ch) { pos++; continue; }
+        const i = nextEdit(pos);
+        if (i >= slots.length) break;
+        if (ch === prompt) { chars[i] = prompt; pos = i + 1; continue; }
+        if (accepts(slots[i].k, ch)) { chars[i] = caseOf(slots[i], ch); pos = i + 1; } else if (rejected < 0) rejected = i;
+      }
+      caret = nextEdit(pos);
+      if (caret > slots.length) caret = slots.length;
+    } else return;
+    const value = chars.join('');
+    if (value !== input.value) {
+      input.value = value;
+      this.dispatch(item.id, 'input', value);
+    }
+    input.setSelectionRange(caret, caret);
+    if (rejected >= 0) this.dispatch(item.id, 'reject', String(rejected));
   }
 }

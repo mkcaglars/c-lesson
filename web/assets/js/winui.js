@@ -245,6 +245,20 @@ const creators = {
   DataGridView() {
     return createGrid();
   },
+  MaskedTextBox() {
+    const r = creators.TextBox();
+    r.el.classList.add('wf-masked');
+    return r;
+  },
+  TabControl() {
+    const el = div('wf-ctl wf-tabcontrol');
+    el.innerHTML = '<div class="wf-tabhdr"></div><div class="wf-tabframe"></div>';
+    return { el, client: el, header: el.firstChild, frame: el.lastChild, tabs: [], sel: -1 };
+  },
+  TabPage() {
+    const el = div('wf-ctl wf-tabpage');
+    return { el, client: el };
+  },
   Control() {
     return { el: div('wf-ctl') };
   },
@@ -268,7 +282,7 @@ function setText(item, value) {
     item.title.textContent = value;
     return;
   }
-  if (item.type === 'TextBox') {
+  if (item.type === 'TextBox' || item.type === 'MaskedTextBox') {
     if (item.input.value !== value) item.input.value = value;
     return;
   }
@@ -278,7 +292,7 @@ function setText(item, value) {
   }
   if (item.type === 'NumericUpDown' || item.type === 'DateTimePicker' || item.type === 'TrackBar' ||
       item.type === 'ProgressBar' || item.type === 'ListBox' || item.type === 'CheckedListBox' ||
-      item.type === 'PictureBox' || item.type === 'Panel') return;
+      item.type === 'PictureBox' || item.type === 'Panel' || item.type === 'TabPage' || item.type === 'TabControl') return;
   if (item.textEl) item.textEl.textContent = t;
 }
 
@@ -432,6 +446,7 @@ export function setProp(item, prop, value) {
       el.style.width = w + 'px';
       el.style.height = h + 'px';
       if (item.type === 'DataGridView' && item.gridJson) renderGrid(item, item.gridJson);
+      if (item.errEl) placeErrorIcon(item);
       return;
     }
     case 'text': setText(item, value); return;
@@ -600,6 +615,18 @@ export function setProp(item, prop, value) {
     case 'grid':
       renderGrid(item, value);
       return;
+    case 'mask':
+      item.mask = value ? JSON.parse(value) : null;
+      return;
+    case 'tabs':
+      renderTabs(item, value);
+      return;
+    case 'visualback':
+      el.classList.toggle('wf-visualback', value === '1');
+      return;
+    case 'error':
+      setErrorIcon(item, value);
+      return;
     case 'datetime': {
       const [format, iso, min, max] = value.split('|');
       const type = format === 'Time' ? 'time' : 'date';
@@ -612,6 +639,57 @@ export function setProp(item, prop, value) {
     default:
       return;
   }
+}
+
+function renderTabs(item, json) {
+  const t = JSON.parse(json);
+  item.tabs = t.t;
+  item.sel = t.s;
+  item.header.style.height = (t.h - 2) + 'px';
+  item.frame.style.top = (t.h - 2) + 'px';
+  item.header.innerHTML = '';
+  t.t.forEach((text, i) => {
+    const b = document.createElement('div');
+    b.className = 'wf-tab' + (i === t.s ? ' selected' : '');
+    b.dataset.tab = i;
+    b.textContent = mnemonic(text) || '\u00a0';
+    item.header.appendChild(b);
+  });
+}
+
+/** ErrorProvider simgesi: kontrolün yanında kırmızı ünlem. değer: "hizalama|boşluk|yanıp sön|ileti" */
+function setErrorIcon(item, value) {
+  if (!value) {
+    item.errEl?.remove();
+    item.errEl = null;
+    return;
+  }
+  const [align, pad, blink, ...rest] = value.split('|');
+  if (!item.errEl) {
+    item.errEl = document.createElement('span');
+    item.errEl.className = 'wf-erricon';
+    item.errEl.textContent = '!';
+  }
+  item.errEl.title = rest.join('|');
+  item.errAlign = align;
+  item.errPad = Number(pad) || 0;
+  if (blink === '1') {
+    item.errEl.classList.remove('wf-blink');
+    void item.errEl.offsetWidth;
+    item.errEl.classList.add('wf-blink');
+  }
+  if (item.errEl.parentElement !== item.el.parentElement && item.el.parentElement) item.el.parentElement.appendChild(item.errEl);
+  placeErrorIcon(item);
+}
+
+function placeErrorIcon(item) {
+  const [x, y, w, h] = String(item.props.bounds || '0,0,0,0').split(',').map(Number);
+  const a = item.errAlign || 'MiddleRight';
+  const left = a.endsWith('Left') ? x - 16 - item.errPad - 2 : x + w + item.errPad + 2;
+  const top = a.startsWith('Top') ? y : a.startsWith('Bottom') ? y + h - 16 : y + Math.round((h - 16) / 2);
+  item.errEl.style.left = left + 'px';
+  item.errEl.style.top = top + 'px';
+  if (!item.errEl.parentElement && item.el.parentElement) item.el.parentElement.appendChild(item.errEl);
 }
 
 /** Bir kontrolün çocuklarını yerleştireceği öğe. */

@@ -880,6 +880,7 @@ export class Ide {
         onOutput: (text) => this.runWrite(text),
         onError: (info) => this.runtimeError(info),
         onEnded: (reason) => this.programEnded(reason),
+        onDownload: (name, b64) => this.offerDownload(name, b64),
       });
     }
     this.overlay.classList.remove('hidden');
@@ -897,6 +898,21 @@ export class Ide {
         span.dataset.raw = '1';
         pre.appendChild(span);
       }
+    }
+    this.runOutput.scrollTop = this.runOutput.scrollHeight;
+  }
+
+  /** Programın SaveFileDialog ile kaydettiği dosya: indirme bağlantısı. */
+  offerDownload(name, b64) {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes]));
+    this.hadOutput = true;
+    this.runOutputBox.classList.remove('collapsed');
+    for (const pre of [this.runOutput, this.outputPre]) {
+      pre.querySelectorAll('a.o-file').forEach((a) => { if (a.dataset.name === name) a.parentElement.remove(); });
+      const a = h('a', { class: 'o-file', href: url, download: name }, `⬇ ${name} indir`);
+      a.dataset.name = name;
+      pre.appendChild(h('span', { class: 'o-info' }, `📄 Dosya kaydedildi (${bytes.length} bayt): `, a, '\n'));
     }
     this.runOutput.scrollTop = this.runOutput.scrollHeight;
   }

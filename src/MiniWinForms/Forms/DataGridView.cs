@@ -218,7 +218,8 @@ namespace System.Windows.Forms
         public int DisplayIndex { get => Index; set { } }
 
         public string Name { get => name; set { name = value ?? ""; Changed(); } }
-        public string HeaderText { get => header ?? (DataGridView != null && !string.IsNullOrEmpty(DataPropertyName) ? DataPropertyName : ""); set { header = value; Changed(); } }
+        /// <summary>Başlık. Ayarlanmamışsa sütunun adı (Name) görünür (WinForms'taki gibi).</summary>
+        public string HeaderText { get => header ?? name; set { header = value; Changed(); } }
         public int Width { get => width; set { if (value < 2) value = 2; width = value; Changed(); } }
         public int MinimumWidth { get; set; } = 5;
         public float FillWeight { get => fillWeight; set { fillWeight = value <= 0 ? 1 : value; Changed(); } }

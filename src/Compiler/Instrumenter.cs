@@ -34,6 +34,7 @@ namespace CLesson.Compiler
         static readonly Dictionary<(string type, string method), string> awaitables = new()
         {
             [("System.Windows.Forms.Form", "ShowDialog")] = "ShowDialogAsync",
+            [("System.Windows.Forms.CommonDialog", "ShowDialog")] = "ShowDialogAsync",
             [("System.Windows.Forms.MessageBox", "Show")] = "ShowAsync",
             [("Microsoft.VisualBasic.Interaction", "InputBox")] = "InputBoxAsync",
         };
