@@ -315,7 +315,12 @@ export class FormDesigner {
     const glyphs = {};
     if (owner.type === 'BindingNavigator') {
       for (const [k, g] of Object.entries(NAV_GLYPHS)) if (owner.props[k]) glyphs[owner.props[k]] = g;
-      for (const item of owner.props.StripItems || []) if (/SaveItem$/.test(item.name)) glyphs[item.name] = '💾';
+      const byName = { SaveItem: '💾', DeleteItem: '✖', AddNewItem: '✚', MoveFirstItem: '⏮', MovePreviousItem: '◀', MoveNextItem: '▶', MoveLastItem: '⏭' };
+      for (const item of owner.props.StripItems || []) {
+        if (glyphs[item.name] || item.type !== 'ToolStripButton') continue;
+        const k = Object.keys(byName).find((x) => item.name.endsWith(x));
+        if (k) glyphs[item.name] = byName[k];
+      }
     }
     for (const item of owner.props.StripItems || []) {
       const el = this.renderStripItem(item, path);

@@ -14,13 +14,19 @@ Derslerde kullanmak için web üzerinde çalışan bir **C# Windows Forms** geli
 - Birden çok proje; her projede birden çok form ve sınıf
 - Otomatik kayıt; aynı proje iki yerde değiştirilirse uyarı verilir
 - Projeyi **Visual Studio projesi (.zip)** olarak indirme (net8.0-windows)
+- **Menü ve araç çubukları:** MenuStrip'e formda "Buraya yazın" ile öğe ekleme (VS adlandırması: `dosyaToolStripMenuItem`), öğeye çift tıklayınca `Click` metodu; ToolStrip, StatusStrip, ContextMenuStrip, kısayol tuşları
+- **DataGridView:** `Rows.Add`, `Cells["ad"].Value`, `SelectedRows`, `CellClick`, `IsNewRow`, satır renkleri, sıralama, hücre düzenleme; tasarımcıda sütun düzenleyicisi. Visual Studio'daki davranışlar korunur (`Rows.Count` en alttaki yeni satırı da sayar, yeni satır silinemez...)
+- **Dosya iletişim kutuları:** `OpenFileDialog` ile bilgisayardan dosya/resim seçme (`Image.FromFile(ofd.FileName)`), `SaveFileDialog` ile kaydedilen dosya "Çıktı" bölümünden indirilir
+- **Veritabanı (okul.mdf yerine):** "Veritabanı Uygulaması" şablonu, Visual Studio'da veri kümesi sihirbazı ve alanları forma sürükledikten sonra oluşan formun aynısıdır: `OkulDataSet`, `ogrenciBindingSource`, `ogrenciTableAdapter.Fill(...)`, `tableAdapterManager.UpdateAll(...)`, `ogrenciBindingNavigator`, bağlı TextBox/MaskedTextBox/CheckBox ve DataGridView. Arkada gerçek `DataTable` çalışır (`Filter`, `Select`, Türkçe İ/ı karşılaştırmaları). Kayıtlar projeyle birlikte saklanır; `okul.mdf` penceresinden tablo tasarımı ve kayıtlar düzenlenir
 
 **Öğretmen**
 - Sınıf ve öğrenci listesi, son giriş ve son değişiklik tarihleri
 - Tüm projeleri açma, çalıştırma ve test etme (salt okunur, öğrencinin projesi bozulmaz)
 - Öğrenciye proje notu yazma; "Kopyasını al" ile kendi alanına kopyalama
 
-**Desteklenen kontroller:** Form, Button, Label, LinkLabel, TextBox, RichTextBox, CheckBox, RadioButton, ComboBox, ListBox, CheckedListBox, GroupBox, Panel, PictureBox (internet adresinden resim), NumericUpDown, DateTimePicker, ProgressBar, TrackBar, Timer, MessageBox, `Interaction.InputBox`.
+**Desteklenen kontroller:** Form, Button, Label, LinkLabel, TextBox, MaskedTextBox, RichTextBox, CheckBox, RadioButton, ComboBox, ListBox, CheckedListBox, GroupBox, Panel, TabControl, PictureBox, NumericUpDown, DateTimePicker, ProgressBar, TrackBar, DataGridView, MenuStrip, ToolStrip, StatusStrip, ContextMenuStrip, BindingNavigator, Timer, ToolTip, ErrorProvider, BindingSource, OpenFileDialog, SaveFileDialog, MessageBox, `Interaction.InputBox`.
+
+**Laboratuvarda (Visual Studio'da) kalanlar:** veritabanı dosyası (okul.mdf) ekleme, veri kümesi sihirbazı ve alanları forma sürükleme. Stüdyo bu adımların *sonucunu* hazır şablon olarak verir; öğrenci kodlamaya oradan devam eder.
 
 ## Nasıl çalışır?
 
@@ -70,5 +76,7 @@ Belgeler:
 
 - `ShowDialog()`, `MessageBox.Show()` ve `InputBox` bir olay metodunun içindeyse WinForms'taki gibi bekler. `FormClosing` ve `KeyPress` gibi sonucun hemen gerektiği olaylarda tarayıcının kendi pencereleri kullanılır.
 - `Thread.Sleep` yerine `Timer` veya `await Task.Delay(...)` kullanılmalıdır.
-- Henüz desteklenmeyenler: çizim (`Graphics`, `Paint`), `MenuStrip`, `DataGridView`, `ListView`, veritabanı bağlantısı.
+- Henüz desteklenmeyenler: çizim (`Graphics`, `Paint`), `ListView`, `TreeView`, gerçek SQL Server bağlantısı (`SqlConnection`), resim sütunları (Resim alanı laboratuvarda yapılır).
+- Bilgisayardaki dosyalara doğrudan yol ile (`"C:\\resim.jpg"`) erişilemez; dosya `OpenFileDialog` ile seçilir. Seçilen ve kaydedilen dosyalar sanal `C:/Users/Ogrenci/Belgeler/` klasöründe durur.
+- ZIP'teki veritabanı projesi okul.mdf yerine `okul.xml` dosyasını kullanır (Visual Studio'da da çalışır); gerçek veritabanı için `okul.sql` betiği eklenir.
 - Güvenlik için yansıma (reflection), ağ ve işletim sistemi API'leri öğrenci kodunda kapalıdır.

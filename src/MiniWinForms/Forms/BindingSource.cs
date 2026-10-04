@@ -398,8 +398,17 @@ namespace System.Windows.Forms
         public void EndInit()
         {
             // Veri Kaynakları'ndan gelen "Verileri Kaydet" düğmesinin simgesi
+            // ve gezgin özelliklerinden ayrılmış standart düğmelerin simgeleri (VS'de simge resmi kalır)
             foreach (ToolStripItem item in Items)
-                if (item is ToolStripButton b && b.Image == null && (b.Name ?? "").EndsWith("SaveItem", StringComparison.Ordinal)) SetGlyph(b, "💾");
+            {
+                if (item is not ToolStripButton b || b.Image != null) continue;
+                string n = b.Name ?? "";
+                string g = n.EndsWith("SaveItem", StringComparison.Ordinal) ? "💾" : n.EndsWith("DeleteItem", StringComparison.Ordinal) ? "✖"
+                    : n.EndsWith("AddNewItem", StringComparison.Ordinal) ? "✚" : n.EndsWith("MoveFirstItem", StringComparison.Ordinal) ? "⏮"
+                    : n.EndsWith("MovePreviousItem", StringComparison.Ordinal) ? "◀" : n.EndsWith("MoveNextItem", StringComparison.Ordinal) ? "▶"
+                    : n.EndsWith("MoveLastItem", StringComparison.Ordinal) ? "⏭" : null;
+                if (g != null) SetGlyph(b, g);
+            }
             RefreshItemsCore();
         }
     }
