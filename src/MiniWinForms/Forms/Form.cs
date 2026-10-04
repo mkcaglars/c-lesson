@@ -118,7 +118,7 @@ namespace System.Windows.Forms
         public bool ShowInTaskbar { get => showInTaskbar; set { showInTaskbar = value; Ui.Set(Id, "taskbar", value); } }
         public bool ShowIcon { get; set; } = true;
         public bool HelpButton { get; set; }
-        public bool KeyPreview { get => keyPreview; set { keyPreview = value; if (value) Listen("keydown"); } }
+        public bool KeyPreview { get => keyPreview; set { keyPreview = value; Ui.Set(Id, "keypreview", value); } }
         public object Icon { get; set; }
         public bool IsMdiContainer { get; set; }
         public Form MdiParent { get; set; }
@@ -541,6 +541,27 @@ namespace System.Windows.Forms
         public static DialogResult Show(IWin32Window owner, string text, string caption, MessageBoxButtons buttons, MessageBoxIcon icon) => Show(text, caption, buttons, icon);
         public static DialogResult Show(IWin32Window owner, string text, string caption, MessageBoxButtons buttons, MessageBoxIcon icon, MessageBoxDefaultButton defaultButton) => Show(text, caption, buttons, icon);
 
+        // Derleyici, beklenebilen yerlerdeki MessageBox.Show çağrılarını "await MessageBox.ShowAsync" yapar;
+        // böylece tarayıcının alert() penceresi yerine Windows benzeri bir iletişim kutusu gösterilir.
+        public static Task<DialogResult> ShowAsync(string text) => ShowAsync(text, "", MessageBoxButtons.OK, MessageBoxIcon.None);
+        public static Task<DialogResult> ShowAsync(string text, string caption) => ShowAsync(text, caption, MessageBoxButtons.OK, MessageBoxIcon.None);
+        public static Task<DialogResult> ShowAsync(string text, string caption, MessageBoxButtons buttons) => ShowAsync(text, caption, buttons, MessageBoxIcon.None);
+        public static Task<DialogResult> ShowAsync(string text, string caption, MessageBoxButtons buttons, MessageBoxIcon icon, MessageBoxDefaultButton defaultButton) => ShowAsync(text, caption, buttons, icon, (int)defaultButton / 256);
+        public static Task<DialogResult> ShowAsync(string text, string caption, MessageBoxButtons buttons, MessageBoxIcon icon, MessageBoxDefaultButton defaultButton, MessageBoxOptions options) => ShowAsync(text, caption, buttons, icon, (int)defaultButton / 256);
+        public static Task<DialogResult> ShowAsync(IWin32Window owner, string text) => ShowAsync(text);
+        public static Task<DialogResult> ShowAsync(IWin32Window owner, string text, string caption) => ShowAsync(text, caption);
+        public static Task<DialogResult> ShowAsync(IWin32Window owner, string text, string caption, MessageBoxButtons buttons) => ShowAsync(text, caption, buttons);
+        public static Task<DialogResult> ShowAsync(IWin32Window owner, string text, string caption, MessageBoxButtons buttons, MessageBoxIcon icon) => ShowAsync(text, caption, buttons, icon);
+        public static Task<DialogResult> ShowAsync(IWin32Window owner, string text, string caption, MessageBoxButtons buttons, MessageBoxIcon icon, MessageBoxDefaultButton defaultButton) => ShowAsync(text, caption, buttons, icon, (int)defaultButton / 256);
+
+        public static async Task<DialogResult> ShowAsync(string text, string caption, MessageBoxButtons buttons, MessageBoxIcon icon, int defaultButton = 0)
+        {
+            string json = "{\"text\":" + Ui.J(text ?? "") + ",\"caption\":" + Ui.J(caption ?? "") + ",\"buttons\":" + Ui.J(buttons.ToString()) +
+                          ",\"icon\":" + Ui.J(icon.ToString()) + ",\"default\":" + defaultButton + "}";
+            string r = await Ui.OpenDialog("messagebox", json);
+            return Enum.TryParse<DialogResult>(r, out var dr) ? dr : DialogResult.Cancel;
+        }
+
         public static DialogResult Show(string text, string caption, MessageBoxButtons buttons, MessageBoxIcon icon)
         {
             Ui.Flush();
@@ -548,17 +569,6 @@ namespace System.Windows.Forms
             Guard.RestartClock();
             return Enum.TryParse<DialogResult>(r, out var dr) ? dr : DialogResult.OK;
         }
-    }
-}
-
-namespace System.Threading
-{
-    public delegate void ThreadExceptionEventHandler(object sender, ThreadExceptionEventArgs e);
-
-    public class ThreadExceptionEventArgs : EventArgs
-    {
-        public ThreadExceptionEventArgs(Exception t) { Exception = t; }
-        public Exception Exception { get; }
     }
 }
 
@@ -574,6 +584,13 @@ namespace Microsoft.VisualBasic
             Ui.Flush();
             string r = Ui.Backend.InputBox(Prompt ?? "", Title ?? "", DefaultResponse ?? "");
             Guard.RestartClock();
+            return r ?? "";
+        }
+
+        public static async System.Threading.Tasks.Task<string> InputBoxAsync(string Prompt, string Title = "", string DefaultResponse = "", int XPos = -1, int YPos = -1)
+        {
+            string json = "{\"prompt\":" + Ui.J(Prompt ?? "") + ",\"title\":" + Ui.J(Title ?? "") + ",\"value\":" + Ui.J(DefaultResponse ?? "") + "}";
+            string r = await Ui.OpenDialog("inputbox", json);
             return r ?? "";
         }
 

@@ -19,27 +19,40 @@ namespace CLesson.Compiler
 
         readonly int fileIndex;
         readonly bool guards;
-        readonly HashSet<TextSpan> showDialogCalls;
+        readonly Dictionary<TextSpan, string> awaitCalls;
         readonly HashSet<TextSpan> asyncFunctions;
 
-        Instrumenter(int fileIndex, bool guards, HashSet<TextSpan> showDialogCalls, HashSet<TextSpan> asyncFunctions)
+        Instrumenter(int fileIndex, bool guards, Dictionary<TextSpan, string> awaitCalls, HashSet<TextSpan> asyncFunctions)
         {
             this.fileIndex = fileIndex;
             this.guards = guards;
-            this.showDialogCalls = showDialogCalls;
+            this.awaitCalls = awaitCalls;
             this.asyncFunctions = asyncFunctions;
         }
 
-        /// <summary>ShowDialog çağrılarını bulur; beklenemeyecek yerdekiler için uyarı döndürür.</summary>
-        public static (HashSet<TextSpan> calls, HashSet<TextSpan> functions, List<Diagnostic> warnings) FindShowDialogs(SemanticModel model, SyntaxNode root)
+        // Beklenebilir hale getirilen çağrılar: (tür, metot) → async karşılığı.
+        static readonly Dictionary<(string type, string method), string> awaitables = new()
         {
-            var calls = new HashSet<TextSpan>();
+            [("System.Windows.Forms.Form", "ShowDialog")] = "ShowDialogAsync",
+            [("System.Windows.Forms.MessageBox", "Show")] = "ShowAsync",
+            [("Microsoft.VisualBasic.Interaction", "InputBox")] = "InputBoxAsync",
+        };
+
+        /// <summary>
+        /// ShowDialog / MessageBox.Show / InputBox çağrılarını bulur. Olay metodu gibi beklenebilir bir yerdeyseler
+        /// "await ...Async()" biçimine çevrilecekler. ShowDialog beklenemeyecek bir yerdeyse uyarı verilir.
+        /// </summary>
+        public static (Dictionary<TextSpan, string> calls, HashSet<TextSpan> functions, List<Diagnostic> warnings) FindAwaitables(SemanticModel model, SyntaxNode root)
+        {
+            var calls = new Dictionary<TextSpan, string>();
             var functions = new HashSet<TextSpan>();
             var warnings = new List<Diagnostic>();
             foreach (var inv in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
             {
-                if (model.GetSymbolInfo(inv).Symbol is not IMethodSymbol m || m.Name != "ShowDialog") continue;
-                if (m.ContainingType?.ToDisplayString() != "System.Windows.Forms.Form") continue;
+                if (model.GetSymbolInfo(inv).Symbol is not IMethodSymbol m) continue;
+                string typeName = m.ContainingType?.ToDisplayString() ?? "";
+                if (!awaitables.TryGetValue((typeName, m.Name), out var asyncName)) continue;
+                // Sonucun hemen kullanılması gereken yerler (ör. e.Cancel = ...) beklenemez.
                 var fn = inv.Ancestors().FirstOrDefault(a => a is BaseMethodDeclarationSyntax or LocalFunctionStatementSyntax or AnonymousFunctionExpressionSyntax or AccessorDeclarationSyntax);
                 bool ok = false;
                 if (fn != null && !inv.Ancestors().TakeWhile(a => a != fn).Any(a => a is LockStatementSyntax or QueryExpressionSyntax))
@@ -50,16 +63,16 @@ namespace CLesson.Compiler
                         MethodDeclarationSyntax or LocalFunctionStatementSyntax => model.GetDeclaredSymbol(fn) as IMethodSymbol,
                         _ => null,
                     };
-                    if (fs != null && fs.Name != "Main" && fs.Parameters.All(p => p.RefKind == RefKind.None) &&
-                        (fs.ReturnsVoid || fs.IsAsync))
+                    if (fs != null && fs.Name != "Main" && (fs.ReturnsVoid || fs.IsAsync) &&
+                        fs.Parameters.All(p => p.RefKind == RefKind.None && !NeedsSynchronousResult(p.Type)))
                         ok = true;
                 }
                 if (ok)
                 {
-                    calls.Add(inv.Span);
+                    calls[inv.Span] = asyncName;
                     functions.Add(fn.Span);
                 }
-                else
+                else if (m.Name == "ShowDialog")
                 {
                     warnings.Add(Diagnostic.Create(ShowDialogWarning, inv.GetLocation()));
                 }
@@ -67,15 +80,27 @@ namespace CLesson.Compiler
             return (calls, functions, warnings);
         }
 
+        /// <summary>FormClosing (e.Cancel), KeyPress (e.Handled) gibi olaylar sonucu hemen bekler.</summary>
+        static bool NeedsSynchronousResult(ITypeSymbol type)
+        {
+            for (var t = type; t != null; t = t.BaseType)
+            {
+                string n = t.ToDisplayString();
+                if (n is "System.ComponentModel.CancelEventArgs" or "System.Windows.Forms.KeyEventArgs" or "System.Windows.Forms.KeyPressEventArgs")
+                    return true;
+            }
+            return false;
+        }
+
         static readonly DiagnosticDescriptor ShowDialogWarning = new(
             "DERS002", "ShowDialog beklemez",
-            "Bu konumdaki ShowDialog() çağrısı web ortamında formun kapanmasını beklemeden devam eder. Çağrıyı bir olay metodunun (ör. button1_Click) içine taşıyın.",
+            "Bu konumdaki ShowDialog() çağrısı web ortamında formun kapanmasını beklemeden devam eder. Çağrıyı bir olay metodunun (ör. button1_Click) içine taşıyın. (FormClosing ve KeyPress gibi olaylarda beklenemez.)",
             "Ders", DiagnosticSeverity.Warning, isEnabledByDefault: true);
 
-        public static SyntaxTree Rewrite(SyntaxTree tree, int fileIndex, bool guards, HashSet<TextSpan> showDialogCalls, HashSet<TextSpan> asyncFunctions)
+        public static SyntaxTree Rewrite(SyntaxTree tree, int fileIndex, bool guards, Dictionary<TextSpan, string> awaitCalls, HashSet<TextSpan> asyncFunctions)
         {
             var root = tree.GetRoot();
-            var rewriter = new Instrumenter(fileIndex, guards, showDialogCalls ?? new(), asyncFunctions ?? new());
+            var rewriter = new Instrumenter(fileIndex, guards, awaitCalls ?? new(), asyncFunctions ?? new());
             var newRoot = rewriter.Visit(root);
             return tree.WithRootAndOptions(newRoot, tree.Options);
         }
@@ -165,23 +190,26 @@ namespace CLesson.Compiler
             return v.WithStatement(WrapLoopBody(node.Statement, v.Statement));
         }
 
-        // ---------------- ShowDialog → await ShowDialogAsync ----------------
+        // ---------------- ShowDialog / MessageBox.Show / InputBox → await ...Async ----------------
 
         public override SyntaxNode VisitInvocationExpression(InvocationExpressionSyntax node)
         {
-            bool isShowDialog = showDialogCalls.Contains(node.Span);
+            awaitCalls.TryGetValue(node.Span, out var asyncName);
             var v = (InvocationExpressionSyntax)base.VisitInvocationExpression(node);
-            if (!isShowDialog) return v;
+            if (asyncName == null) return v;
             ExpressionSyntax newExpr = v.Expression switch
             {
-                MemberAccessExpressionSyntax ma => ma.WithName(IdentifierName("ShowDialogAsync").WithTriviaFrom(ma.Name)),
-                IdentifierNameSyntax id => IdentifierName("ShowDialogAsync").WithTriviaFrom(id),
+                MemberAccessExpressionSyntax ma => ma.WithName(IdentifierName(asyncName).WithTriviaFrom(ma.Name)),
+                IdentifierNameSyntax id => IdentifierName(asyncName).WithTriviaFrom(id),
                 _ => null,
             };
             if (newExpr == null) return v;
             var call = v.WithExpression(newExpr).WithoutTrivia();
-            return ParenthesizedExpression(AwaitExpression(Token(SyntaxKind.AwaitKeyword).WithTrailingTrivia(Space), call))
-                .WithTriviaFrom(v);
+            ExpressionSyntax awaited = AwaitExpression(Token(SyntaxKind.AwaitKeyword).WithTrailingTrivia(Space), call);
+            // "f.ShowDialog().ToString()" gibi kullanımlarda parantez gerekir; tek başına ifade olarak kullanımda gerekmez.
+            if (node.Parent is MemberAccessExpressionSyntax or ConditionalAccessExpressionSyntax or ElementAccessExpressionSyntax or PostfixUnaryExpressionSyntax)
+                awaited = ParenthesizedExpression(awaited);
+            return awaited.WithTriviaFrom(v);
         }
 
         bool NeedsAsync(SyntaxNode original, SyntaxTokenList modifiers) =>

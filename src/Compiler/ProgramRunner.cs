@@ -13,6 +13,7 @@ namespace CLesson.Compiler
         {
             Ui.Reset();
             HookConsole();
+            SynchronizationContext.SetSynchronizationContext(new UiSynchronizationContext());
             var asm = pdb != null ? Assembly.Load(assembly, pdb) : Assembly.Load(assembly);
             var entry = asm.EntryPoint ?? throw new InvalidOperationException("Programda Main metodu bulunamadı.");
             Ui.Execute(() =>

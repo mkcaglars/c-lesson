@@ -43,6 +43,8 @@ namespace System.Windows.Forms
 
         public Control()
         {
+            // Sonlandırıcıda (finalizer) kullanıcı kodu çalışmasın.
+            GC.SuppressFinalize(this);
             Id = Ui.Register(this);
             Ui.Create(Id, UiType);
             var s = DefaultSize;

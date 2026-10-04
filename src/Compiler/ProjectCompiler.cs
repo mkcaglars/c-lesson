@@ -3,7 +3,6 @@ using System.Globalization;
 using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.Emit;
 using Microsoft.CodeAnalysis.Text;
 
 namespace CLesson.Compiler
@@ -103,17 +102,17 @@ namespace CLesson.Compiler
             return Convert(list);
         }
 
-        (List<Diagnostic> diagnostics, Dictionary<SyntaxTree, (HashSet<TextSpan>, HashSet<TextSpan>)> dialogs) ExtraChecks(CSharpCompilation comp)
+        (List<Diagnostic> diagnostics, Dictionary<SyntaxTree, (Dictionary<TextSpan, string>, HashSet<TextSpan>)> dialogs) ExtraChecks(CSharpCompilation comp)
         {
             var diags = new List<Diagnostic>();
-            var dialogs = new Dictionary<SyntaxTree, (HashSet<TextSpan>, HashSet<TextSpan>)>();
+            var dialogs = new Dictionary<SyntaxTree, (Dictionary<TextSpan, string>, HashSet<TextSpan>)>();
             foreach (var tree in comp.SyntaxTrees)
             {
                 if (tree.FilePath == HiddenFileName) continue;
                 var model = comp.GetSemanticModel(tree);
                 var root = tree.GetRoot();
                 diags.AddRange(ApiGuard.Check(model, root));
-                var (calls, fns, warnings) = Instrumenter.FindShowDialogs(model, root);
+                var (calls, fns, warnings) = Instrumenter.FindAwaitables(model, root);
                 diags.AddRange(warnings);
                 dialogs[tree] = (calls, fns);
             }
@@ -153,20 +152,20 @@ namespace CLesson.Compiler
                 {
                     if (tree.FilePath == HiddenFileName) continue;
                     int index = fileOrder.IndexOf(tree.FilePath);
-                    HashSet<TextSpan> calls = null, fns = null;
+                    Dictionary<TextSpan, string> calls = null; HashSet<TextSpan> fns = null;
                     if (dialogsOn && dialogs.TryGetValue(tree, out var d)) (calls, fns) = d;
                     var rewritten = Instrumenter.Rewrite(tree, index, guards, calls, fns);
                     instrumented = instrumented.ReplaceSyntaxTree(tree, rewritten);
                 }
 
+                // PDB üretilmez: Roslyn PDB için arka plan görevi bekler, tarayıcıda (tek iş parçacığı) bu mümkün değil.
+                // Hata satırları zaten Guard.S ile takip ediliyor.
                 using var pe = new MemoryStream();
-                using var pdb = new MemoryStream();
-                var emit = instrumented.Emit(pe, pdb, options: new EmitOptions(debugInformationFormat: DebugInformationFormat.PortablePdb));
+                var emit = instrumented.Emit(pe);
                 if (emit.Success)
                 {
                     result.Success = true;
                     result.Assembly = pe.ToArray();
-                    result.Pdb = pdb.ToArray();
                     break;
                 }
                 if (!guards)

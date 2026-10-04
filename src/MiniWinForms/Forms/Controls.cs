@@ -1336,7 +1336,7 @@ namespace System.Windows.Forms
         int interval = 100;
         bool enabled;
 
-        public Timer() { Id = Ui.Register(this); }
+        public Timer() { GC.SuppressFinalize(this); Id = Ui.Register(this); }
         public Timer(IContainer container) : this() { container?.Add(this); }
 
         public object Tag { get; set; }

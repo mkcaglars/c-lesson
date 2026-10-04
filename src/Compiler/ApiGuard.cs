@@ -13,7 +13,7 @@ namespace CLesson.Compiler
     {
         static readonly string[] blockedNamespaces =
         {
-            "System.Reflection", "System.Runtime.InteropServices", "System.Runtime.Loader", "System.Runtime.CompilerServices",
+            "System.Reflection", "System.Runtime.InteropServices", "System.Runtime.Loader",
             "System.Net", "System.Security", "System.Diagnostics.Tracing", "MiniWinForms",
         };
 

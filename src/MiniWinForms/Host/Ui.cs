@@ -19,6 +19,8 @@ namespace MiniWinForms
         /// <summary>Metnin piksel ölçüsünü "genişlik,yükseklik" olarak döndürür.</summary>
         string Measure(string text, string font);
         string MessageBox(string text, string caption, string buttons, string icon);
+        /// <summary>Beklemeyen (async) iletişim kutusu açar; sonuç Ui.CompleteDialog ile gelir.</summary>
+        void ShowDialog(int requestId, string kind, string json);
         /// <summary>null dönerse kullanıcı İptal'e basmıştır.</summary>
         string InputBox(string prompt, string title, string defaultResponse);
         /// <summary>Tarayıcıdan anlık bilgi okur (ör. imleç konumu).</summary>
@@ -41,6 +43,8 @@ namespace MiniWinForms
         public string Measure(string text, string font) => ((text ?? "").Length * 7 + 2) + ",15";
         public string MessageBox(string text, string caption, string buttons, string icon) { Log.Add("MSG:" + text); return buttons == "YesNo" || buttons == "YesNoCancel" ? "Yes" : "OK"; }
         public string InputBox(string prompt, string title, string defaultResponse) => defaultResponse;
+        public readonly List<(int id, string kind, string json)> Dialogs = new List<(int, string, string)>();
+        public void ShowDialog(int requestId, string kind, string json) { Log.Add("DLG:" + kind + ":" + json); Dialogs.Add((requestId, kind, json)); }
         public string Query(int id, string what) => "";
         public void Output(string text) => Log.Add("OUT:" + text);
         public void Error(string json) => Log.Add("ERR:" + json);
@@ -59,6 +63,43 @@ namespace MiniWinForms
         static int nextId = 1;
         static int depth;
         static bool flushScheduled;
+
+        static readonly Queue<(int gen, System.Threading.SendOrPostCallback d, object state)> posted = new Queue<(int, System.Threading.SendOrPostCallback, object)>();
+        static readonly Dictionary<int, System.Threading.Tasks.TaskCompletionSource<string>> dialogs = new Dictionary<int, System.Threading.Tasks.TaskCompletionSource<string>>();
+        static bool draining;
+        static int nextDialog = 1;
+
+        /// <summary>Her çalıştırmada artar; eski programdan kalan geri çağrılar yok sayılır.</summary>
+        public static int Generation { get; private set; } = 1;
+
+        internal static void Post(int gen, System.Threading.SendOrPostCallback d, object state)
+        {
+            posted.Enqueue((gen, d, state));
+            if (!flushScheduled)
+            {
+                flushScheduled = true;
+                Backend.ScheduleFlush();
+            }
+        }
+
+        /// <summary>Tarayıcıda async iletişim kutusu açar.</summary>
+        internal static System.Threading.Tasks.Task<string> OpenDialog(string kind, string json)
+        {
+            int id = nextDialog++;
+            var tcs = new System.Threading.Tasks.TaskCompletionSource<string>();
+            dialogs[id] = tcs;
+            Flush();
+            Backend.ShowDialog(id, kind, json);
+            return tcs.Task;
+        }
+
+        /// <summary>Tarayıcıdaki iletişim kutusu kapanınca çağrılır.</summary>
+        public static void CompleteDialog(int requestId, string result)
+        {
+            if (!dialogs.TryGetValue(requestId, out var tcs)) return;
+            dialogs.Remove(requestId);
+            Execute(() => tcs.TrySetResult(result));
+        }
 
         /// <summary>Program çalışıyor mu (Application.Run / ilk form gösterildi).</summary>
         public static bool Running { get; internal set; }
@@ -120,6 +161,23 @@ namespace MiniWinForms
         public static void Flush()
         {
             flushScheduled = false;
+            if (depth == 0 && !draining && posted.Count > 0)
+            {
+                draining = true;
+                try
+                {
+                    int n = posted.Count;
+                    for (int i = 0; i < n && posted.Count > 0; i++)
+                    {
+                        var (gen, d, state) = posted.Dequeue();
+                        if (gen == Generation) Execute(() => d(state));
+                    }
+                }
+                finally
+                {
+                    draining = false;
+                }
+            }
             if (depth == 0) Guard.EndTurn();
             if (lazySets.Count > 0)
             {
@@ -215,6 +273,9 @@ namespace MiniWinForms
             Application.ResetState();
             objects.Clear();
             lazySets.Clear();
+            posted.Clear();
+            dialogs.Clear();
+            Generation++;
             ops.Clear();
             setIndex.Clear();
             depth = 0;
@@ -270,6 +331,16 @@ namespace MiniWinForms
             }
             return sb.Append(']').ToString();
         }
+    }
+
+    /// <summary>async/await devamlarını arayüz iş parçacığında, korumalı biçimde çalıştırır.</summary>
+    public sealed class UiSynchronizationContext : System.Threading.SynchronizationContext
+    {
+        readonly int generation;
+        public UiSynchronizationContext() { generation = Ui.Generation; }
+        public override void Post(System.Threading.SendOrPostCallback d, object state) => Ui.Post(generation, d, state);
+        public override void Send(System.Threading.SendOrPostCallback d, object state) => d(state);
+        public override System.Threading.SynchronizationContext CreateCopy() => this;
     }
 
     /// <summary>Sonsuz döngü koruması ve satır takibi. Derleyici her ifadenin önüne Guard.S çağrısı ekler.</summary>

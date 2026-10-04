@@ -139,6 +139,54 @@ namespace Tests
         }
 
         [Fact]
+        public void MessageBoxBecomesAsyncDialog()
+        {
+            var b = Backend();
+            var form = RunAndGetMainForm(Project(@"MessageBox.Show(""Merhaba"");
+            if (MessageBox.Show(""Emin misin?"", ""Soru"", MessageBoxButtons.YesNo) == DialogResult.Yes) label1.Text = ""evet""; else label1.Text = ""hayır"";
+            string s = MessageBox.Show(""x"").ToString();"));
+            Ui.Dispatch(Find(form, "textBox1").Id(), "input", "1");
+            Ui.Dispatch(Find(form, "textBox2").Id(), "input", "1");
+            Ui.Dispatch(Find(form, "button1").Id(), "click", "");
+            var first = Assert.Single(b.Dialogs);
+            Assert.Contains("Merhaba", first.json);
+            Ui.CompleteDialog(first.id, "OK");
+            var dlg = b.Dialogs[1];
+            Assert.Equal("messagebox", dlg.kind);
+            Assert.Contains("Emin misin?", dlg.json);
+            Assert.Equal("Sonuç: 2", Find(form, "label1").Text);
+            Ui.CompleteDialog(dlg.id, "No");
+            Assert.Equal("hayır", Find(form, "label1").Text);
+            Assert.Equal(3, b.Dialogs.Count);
+        }
+
+        [Fact]
+        public void FormClosingMessageBoxStaysSynchronous()
+        {
+            var b = Backend();
+            var extra = @"namespace HesapMakinesi { public partial class Form1 {
+                protected override void OnLoad(EventArgs e) { base.OnLoad(e); FormClosing += Kapaniyor; }
+                void Kapaniyor(object sender, FormClosingEventArgs e) { if (MessageBox.Show(""Çık?"", """", MessageBoxButtons.YesNo) == DialogResult.No) e.Cancel = true; }
+            } }";
+            var form = RunAndGetMainForm(Project("", extra));
+            Ui.Dispatch(form.Id(), "close", "");
+            Assert.Empty(b.Dialogs);
+            Assert.Contains(b.Log, l => l == "MSG:Çık?");
+            Assert.True(form.IsDisposed); // NullBackend "Yes" döndürür
+        }
+
+        [Fact]
+        public void AwaitTaskDelayContinuesOnUi()
+        {
+            var b = Backend();
+            var form = RunAndGetMainForm(Project("", @"namespace HesapMakinesi { public partial class Form1 {
+                protected override async void OnShown(EventArgs e) { base.OnShown(e); label1.Text = ""önce""; await Task.Yield(); label1.Text = ""sonra""; }
+            } }"));
+            // Devam kısmı aynı tur sonunda arayüz iş parçacığında çalışır.
+            Assert.Equal("sonra", Find(form, "label1").Text);
+        }
+
+        [Fact]
         public void CompletionListsMembers()
         {
             var compiler = new ProjectCompiler();
