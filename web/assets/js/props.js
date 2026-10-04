@@ -4,6 +4,19 @@ import { h, modal, toast } from './ui.js';
 import { isIdentifier } from './templates.js';
 import { FORM, maskPreview } from './designer.js';
 
+/** Bağlanabilir özellikler (DataBindings penceresi) */
+const BINDABLE = {
+  CheckBox: ['CheckState', 'Checked', 'Text', 'Tag'],
+  RadioButton: ['Checked', 'Text', 'Tag'],
+  ComboBox: ['Text', 'SelectedValue', 'SelectedItem', 'Tag'],
+  ListBox: ['SelectedValue', 'Tag'],
+  NumericUpDown: ['Value', 'Tag'],
+  DateTimePicker: ['Value', 'Text', 'Tag'],
+  PictureBox: ['ImageLocation', 'Tag'],
+  TrackBar: ['Value', 'Tag'],
+  ProgressBar: ['Value', 'Tag'],
+};
+
 const SHORTCUTS = ['Ctrl+N', 'Ctrl+O', 'Ctrl+S', 'Ctrl+Shift+S', 'Ctrl+P', 'Ctrl+Z', 'Ctrl+Y', 'Ctrl+X', 'Ctrl+C', 'Ctrl+V', 'Ctrl+A', 'Ctrl+F', 'Ctrl+H', 'Ctrl+Q', 'Ctrl+W',
   'Alt+F4', 'F1', 'F2', 'F3', 'F5', 'F12', 'Delete', 'Ctrl+Delete', 'Ctrl+1', 'Ctrl+2'];
 const MASKS = [
@@ -111,8 +124,8 @@ export class PropertyGrid {
     names.unshift('Name');
     for (const prop of names) {
       const def = PROPS[prop];
-      if (!def) continue;
-      const label = prop === 'Name' ? '(Name)' : prop === 'StripItems' && t.item ? 'DropDownItems' : codeName(prop);
+      if (!def || def.hidden) continue;
+      const label = prop === 'Name' ? '(Name)' : prop === 'DataBindings' ? '(DataBindings)' : prop === 'StripItems' && t.item ? 'DropDownItems' : codeName(prop);
       const row = h('div', { class: 'prop-row' });
       const value = this.valueOf(t, prop);
       const changed = prop !== 'Name' && prop in t.props && JSON.stringify(t.props[prop]) !== JSON.stringify(propDefault(t.type, prop));
@@ -315,6 +328,53 @@ export class PropertyGrid {
         more(() => this.tabPagesDialog(t), 'Sekmeleri düzenle');
         break;
       }
+      case 'databindings': {
+        const b = value || {};
+        const keys = Object.keys(b).filter((k) => b[k]);
+        input(keys.length ? keys.map((k) => `${k}: ${String(b[k]).replace('.', ' - ')}`).join('; ') : '(yok)', () => {}, { readonly: true });
+        more(() => this.bindingsDialog(t, b, (v) => this.apply(t, prop, Object.keys(v).length ? v : undefined)), 'Veri bağlamaları');
+        break;
+      }
+      case 'datasource':
+      case 'compref': {
+        const comps = this.designer.model.components || [];
+        let options;
+        if (def.type === 'compref') options = comps.filter((c) => c.type === def.refType);
+        else if (t.type === 'BindingSource') options = comps.filter((c) => c.name !== t.name && (c.type === 'TypedDataSet' || c.type === 'BindingSource'));
+        else options = comps.filter((c) => c.type === 'BindingSource');
+        const names = options.map((c) => c.name);
+        select(['', ...names], value || '', (v) => {
+          if (t.type === 'DataGridView') this.designer.setGridDataSource(t.name, v || undefined);
+          else this.apply(t, prop, v || undefined);
+        }, ['(yok)', ...names]);
+        break;
+      }
+      case 'datamember': {
+        const tables = (this.host.data.database?.tables || []).map((x) => x.name);
+        select(['', ...tables], value || '', (v) => this.apply(t, prop, v || undefined), ['(yok)', ...tables]);
+        break;
+      }
+      case 'itemref': {
+        const items = (t.props.StripItems || []).map((x) => x.name);
+        select(['', ...items], value || '', (v) => this.apply(t, prop, v || undefined), ['(yok)', ...items]);
+        break;
+      }
+      case 'updateorder':
+        select(['InsertUpdateDelete', 'UpdateInsertDelete'], value || 'InsertUpdateDelete', (v) => this.apply(t, prop, v));
+        break;
+      case 'adapterrefs': {
+        const db = this.host.data.database;
+        const refs = value || {};
+        for (const table of db?.tables || []) {
+          const key = `${table.name}TableAdapter`;
+          const adapters = (this.designer.model.components || []).filter((c) => c.type === 'TableAdapter' && c.props.Table === table.name).map((c) => c.name);
+          const sel = h('select', { disabled: this.host.readonly, title: key },
+            [['', '(yok)'], ...adapters.map((a) => [a, a])].map(([v, l]) => h('option', { value: v, selected: v === (refs[key] || '') }, `${key}: ${l}`)));
+          sel.onchange = () => this.apply(t, prop, { ...refs, [key]: sel.value || undefined });
+          cell.appendChild(sel);
+        }
+        break;
+      }
       case 'controlref': {
         const buttons = [...this.designer.walk().map((e) => e.control), ...(this.designer.model.components || [])]
           .filter((c) => c.type === (def.refType || 'Button')).map((c) => c.name);
@@ -431,6 +491,31 @@ export class PropertyGrid {
       toast(`Geçersiz ya da kullanılmış sütun adı: "${bad.name}"`, 'error');
     }
     done(cols.map((c) => ({ name: c.name, type: c.type, props: Object.fromEntries(Object.entries(c.props).filter(([, v]) => v !== undefined && v !== '')) })));
+  }
+
+  /** (DataBindings) penceresi: özellik → BindingSource alanı */
+  async bindingsDialog(t, current, done) {
+    const d = this.designer;
+    const db = this.host.data.database;
+    const sources = (d.model.components || []).filter((c) => c.type === 'BindingSource');
+    const fieldsOf = (bs) => {
+      const table = db?.tables.find((x) => x.name === bs.props.DataMember);
+      return table ? table.columns.map((c) => c.name) : [];
+    };
+    const options = [['', '(yok)']];
+    for (const bs of sources) for (const f of fieldsOf(bs)) options.push([`${bs.name}.${f}`, `${bs.name} - ${f}`]);
+    const props = BINDABLE[t.type] || ['Text', 'Tag'];
+    const result = { ...current };
+    const rows = props.map((p) => {
+      const sel = h('select', { class: 'input' }, options.map(([v, l]) => h('option', { value: v, selected: v === (current[p] || '') }, l)));
+      sel.onchange = () => { if (sel.value) result[p] = sel.value; else delete result[p]; };
+      return h('div', { class: 'bind-row' }, h('b', {}, p), sel);
+    });
+    const info = sources.length ? 'Kontrolün özelliğini veri kaynağındaki bir alana bağlayın (Visual Studio: Özellikler → (DataBindings)).'
+      : 'Formda BindingSource yok. Önce araç kutusundan BindingSource ekleyip DataSource ve DataMember özelliklerini ayarlayın.';
+    const body = h('div', { class: 'bind-editor' }, h('p', { class: 'muted', style: { marginTop: 0 } }, info), ...rows);
+    const r = await modal({ title: `${t.name} — (DataBindings)`, body, width: 480, buttons: [{ text: 'Vazgeç', value: null }, { text: 'Tamam', value: 'ok', primary: true }] });
+    if (r === 'ok') done(result);
   }
 
   async maskDialog(current, done) {

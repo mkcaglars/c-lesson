@@ -128,10 +128,13 @@ namespace System.Windows.Forms
             set { font = value; Ui.Set(Id, "font", value?.Css ?? ""); }
         }
 
-        public Size Size { get; set; } = new Size(23, 22);
+        Size size = new Size(23, 22);
+        bool autoSize = true;
+        public Size Size { get => size; set { size = value; SendWidth(); } }
         public int Width { get => Size.Width; set => Size = new Size(value, Size.Height); }
         public int Height { get => Size.Height; set => Size = new Size(Size.Width, value); }
-        public bool AutoSize { get; set; } = true;
+        public bool AutoSize { get => autoSize; set { autoSize = value; SendWidth(); } }
+        void SendWidth() => Ui.Set(Id, "width", autoSize ? 0 : size.Width);
         public Padding Padding { get; set; }
         public Padding Margin { get; set; }
         public RightToLeft RightToLeft { get; set; }

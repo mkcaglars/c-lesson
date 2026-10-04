@@ -324,3 +324,10 @@
 @keyframes wf-blink { 50% { visibility: hidden; } }
 /* Açık menü diğer kontrollerin üstünde görünsün */
 .wf-strip:has(.wf-tsmenu.open) { z-index: 100000 !important; }
+/* BindingNavigator düğme simgeleri */
+.wf-tsglyph { display: none; font-size: 13px; line-height: 1; min-width: 14px; text-align: center; }
+.wf-tsitem.wf-tshasglyph:not(.wf-tshasimg) .wf-tsglyph { display: inline-block; }
+.wf-tsitem.wf-tshasglyph:not(.wf-tshasimg)[data-display="Image"] .wf-tstext,
+.wf-tsitem.wf-tshasglyph:not(.wf-tshasimg)[data-display="None"] .wf-tstext { display: none; }
+.wf-tsitem.wf-tshasglyph[data-display="Text"] .wf-tsglyph { display: none; }
+.wf-tsdisabled .wf-tsglyph { opacity: 0.45; }

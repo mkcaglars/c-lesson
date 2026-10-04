@@ -130,6 +130,20 @@ namespace CLesson.Compiler
                 }
                 csproj.AppendLine("  </ItemGroup>");
             }
+            var copied = (project.DataFiles ?? new()).Where(f => !f.Name.EndsWith(".sql", StringComparison.OrdinalIgnoreCase)).ToList();
+            if (copied.Count > 0)
+            {
+                csproj.AppendLine();
+                csproj.AppendLine("  <!-- Veritabanı kayıtları: program bu dosyayı okur ve kaydeder (çıkış klasörüne bir kez kopyalanır) -->");
+                csproj.AppendLine("  <ItemGroup>");
+                foreach (var f in copied)
+                {
+                    csproj.AppendLine("    <None Update=\"" + f.Name + "\">");
+                    csproj.AppendLine("      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>");
+                    csproj.AppendLine("    </None>");
+                }
+                csproj.AppendLine("  </ItemGroup>");
+            }
             csproj.AppendLine();
             csproj.AppendLine("</Project>");
 
@@ -180,11 +194,16 @@ namespace CLesson.Compiler
                     if (f.Name == ProjectCompiler.HiddenFileName) continue;
                     Add(f.Name, f.Content);
                 }
+                foreach (var f in project.DataFiles ?? new()) Add(f.Name, f.Content);
+                string db = (project.DataFiles ?? new()).Any() ?
+                    "\r\nVeritabanı: Bu projede okul.mdf yerine kayıtlar " + string.Join(", ", copied.Select(f => f.Name)) + " dosyasında tutulur;\r\n" +
+                    "veri kümesi (DataSet) sınıfları ...DataSet.Designer.cs dosyasındadır ve bu dosyayı okuyup yazar.\r\n" +
+                    "Gerçek SQL Server veritabanı oluşturmak isterseniz .sql dosyasındaki komutları kullanabilirsiniz.\r\n" : "";
                 Add("BENIOKU.txt",
                     "Bu proje C# WinForms Ders Ortamından indirildi.\r\n\r\n" +
                     "Açmak için: " + project.Namespace + ".slnx dosyasına çift tıklayın (Visual Studio 2022 17.13+ veya VS 2026).\r\n" +
                     "Daha eski Visual Studio 2022 sürümlerinde " + project.Namespace + ".sln dosyasını açın.\r\n" +
-                    "Gerekli: .NET 8 SDK ve Visual Studio'da \".NET masaüstü geliştirme\" iş yükü.\r\n");
+                    "Gerekli: .NET 8 SDK ve Visual Studio'da \".NET masaüstü geliştirme\" iş yükü.\r\n" + db);
             }
             return ms.ToArray();
         }

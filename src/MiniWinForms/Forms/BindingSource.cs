@@ -325,8 +325,8 @@ namespace System.Windows.Forms
 
         // Not: bir öğe bu özelliklere atanınca tıklama işlemi gezgin tarafından yapılır.
         // Silmeden önce onay sormak için DeleteItem = null yapılıp öğenin Click olayı yazılır.
-        public ToolStripItem AddNewItem { get => addNew; set { Swap(ref addNew, value, OnAddNew); RefreshItemsCore(); } }
-        public ToolStripItem DeleteItem { get => delete; set { Swap(ref delete, value, OnDelete); RefreshItemsCore(); } }
+        public ToolStripItem AddNewItem { get => addNew; set { Swap(ref addNew, value, OnAddNew); SetGlyph(value, "✚"); RefreshItemsCore(); } }
+        public ToolStripItem DeleteItem { get => delete; set { Swap(ref delete, value, OnDelete); SetGlyph(value, "✖"); RefreshItemsCore(); } }
         public ToolStripItem MoveFirstItem { get => moveFirst; set { Swap(ref moveFirst, value, OnMoveFirst); SetGlyph(value, "⏮"); RefreshItemsCore(); } }
         public ToolStripItem MovePreviousItem { get => movePrevious; set { Swap(ref movePrevious, value, OnMovePrevious); SetGlyph(value, "◀"); RefreshItemsCore(); } }
         public ToolStripItem MoveNextItem { get => moveNext; set { Swap(ref moveNext, value, OnMoveNext); SetGlyph(value, "▶"); RefreshItemsCore(); } }
@@ -394,6 +394,13 @@ namespace System.Windows.Forms
         }
 
         public void BeginInit() { }
-        public void EndInit() => RefreshItemsCore();
+
+        public void EndInit()
+        {
+            // Veri Kaynakları'ndan gelen "Verileri Kaydet" düğmesinin simgesi
+            foreach (ToolStripItem item in Items)
+                if (item is ToolStripButton b && b.Image == null && (b.Name ?? "").EndsWith("SaveItem", StringComparison.Ordinal)) SetGlyph(b, "💾");
+            RefreshItemsCore();
+        }
     }
 }

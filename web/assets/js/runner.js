@@ -297,6 +297,9 @@ export class Desktop {
       case 'dl':
         this.hooks.onDownload?.(op[1], op[2]);
         return;
+      case 'dbfile':
+        this.hooks.onDataFile?.(op[1], op[2]);
+        return;
       default:
     }
   }

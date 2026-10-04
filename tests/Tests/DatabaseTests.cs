@@ -128,6 +128,25 @@ namespace Tests
         static string LastXml(NullBackend b) => b.Log.LastOrDefault(l => l.Contains("\"dbfile\"")) ?? "";
 
         [Fact]
+        public void ZipContainsDatabaseFiles()
+        {
+            var p = Project();
+            p.DataFiles.Add(new ProjectFile { Name = "okul.sql", Content = "CREATE TABLE x" });
+            var bytes = CodeTools.ExportZip(p);
+            var dir = Environment.GetEnvironmentVariable("ZIP_OUT");
+            if (!string.IsNullOrEmpty(dir)) File.WriteAllBytes(Path.Combine(dir, "okul.zip"), bytes);
+            using var zip = new System.IO.Compression.ZipArchive(new MemoryStream(bytes));
+            var names = zip.Entries.Select(e => e.FullName).ToList();
+            Assert.Contains("Okul Uygulaması/okul.xml", names);
+            Assert.Contains("Okul Uygulaması/okul.sql", names);
+            Assert.Contains("Okul Uygulaması/OkulDataSet.Designer.cs", names);
+            using var r = new StreamReader(zip.GetEntry("Okul Uygulaması/OkulUygulamasi.csproj")!.Open());
+            var csproj = r.ReadToEnd();
+            Assert.Contains("<None Update=\"okul.xml\">", csproj);
+            Assert.DoesNotContain("okul.sql", csproj);
+        }
+
+        [Fact]
         public void TemplateLoadsAndNavigates()
         {
             var (form, _) = Run(false);

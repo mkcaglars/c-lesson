@@ -9,6 +9,8 @@ import { generateDesigner } from './codegen.js';
 import { addForm, classCs, isIdentifier } from './templates.js';
 import { setHost } from './engine.js';
 import { Desktop } from './runner.js';
+import { DataEditor } from './dataeditor.js';
+import { generateDataSet, designerFileName, databaseXml, databaseSql, dataFileName, parseDatabaseXml } from './datasetgen.js';
 
 const SAVE_DELAY = 1500;
 const CHECK_DELAY = 700;
@@ -90,7 +92,17 @@ export class Ide {
         d.files.push(f);
       }
       f.generated = true;
-      f.content = generateDesigner(d.namespace, form);
+      f.content = generateDesigner(d.namespace, form, d.database);
+    }
+    if (d.database) {
+      const name = designerFileName(d.database);
+      let f = d.files.find((x) => x.name === name);
+      if (!f) {
+        f = { name, content: '' };
+        d.files.push(f);
+      }
+      f.generated = true;
+      f.content = generateDataSet(d.namespace, d.database);
     }
     return d;
   }
@@ -159,6 +171,7 @@ export class Ide {
     this.tabBar = h('div', { class: 'tabs' });
     this.docEditor = h('div', { class: 'doc' });
     this.docDesigner = h('div', { class: 'doc' });
+    this.docData = h('div', { class: 'doc hidden' });
     this.docEmpty = h('div', { class: 'doc doc-empty hidden' }, 'Açık dosya yok. Çözüm Gezgini\'nden bir dosya açın.');
     this.solution = h('div', { class: 'tree' });
     this.props = new PropertyGrid(this);
@@ -184,7 +197,7 @@ export class Ide {
       top, ...banners,
       h('div', { class: 'ide-main' },
         h('aside', { class: 'ide-panel ide-left' }, h('div', { class: 'ide-panel-title' }, 'Araç Kutusu'), this.toolbox),
-        h('section', { class: 'ide-center' }, this.tabBar, h('div', { class: 'docs' }, this.docEditor, this.docDesigner, this.docEmpty)),
+        h('section', { class: 'ide-center' }, this.tabBar, h('div', { class: 'docs' }, this.docEditor, this.docDesigner, this.docData, this.docEmpty)),
         h('aside', { class: 'ide-panel ide-right' },
           h('div', { class: 'ide-panel-title' }, 'Çözüm Gezgini'),
           h('div', { class: 'solution' }, this.solution),
@@ -238,11 +251,13 @@ export class Ide {
     return this.engineObj;
   }
 
-  projectJson() {
+  projectJson(withData = false) {
+    const db = this.data.database;
     return JSON.stringify({
       name: this.name,
       namespace: this.data.namespace,
       files: this.data.files.map((f) => ({ name: f.name, content: f.content })),
+      dataFiles: withData && db ? [{ name: dataFileName(db), content: databaseXml(db) }, ...(withData === 'zip' ? [{ name: `${db.name}.sql`, content: databaseSql(db) }] : [])] : [],
     });
   }
 
@@ -338,6 +353,20 @@ export class Ide {
     this.activate(key);
   }
 
+  /** Veritabanı penceresi (okul.mdf). view: 'data' | 'design' | 'sql' */
+  openData(view = 'data') {
+    const db = this.data.database;
+    if (!db) return;
+    const key = this.tabKey('data', db.name);
+    let tab = this.tabs.find((t) => t.key === key);
+    if (!tab) {
+      tab = { key, kind: 'data', name: `${db.name}.mdf`, title: `${db.name}.mdf [Veri]` };
+      this.tabs.push(tab);
+    }
+    tab.view = view;
+    this.activate(key);
+  }
+
   activate(key) {
     const tab = this.tabs.find((t) => t.key === key);
     this.active = tab || null;
@@ -345,12 +374,19 @@ export class Ide {
     this.docEmpty.classList.toggle('hidden', !!tab);
     this.docEditor.classList.toggle('hidden', tab?.kind !== 'code');
     this.docDesigner.classList.toggle('hidden', tab?.kind !== 'design');
+    this.docData.classList.toggle('hidden', tab?.kind !== 'data');
     this.toolbox.classList.toggle('disabled', tab?.kind !== 'design' || this.readonly);
     if (!tab) {
       this.props.clear();
       return;
     }
-    if (tab.kind === 'code') {
+    if (tab.kind === 'data') {
+      this.dataEditor ??= new DataEditor(this);
+      this.docData.innerHTML = '';
+      this.docData.appendChild(this.dataEditor.el);
+      this.dataEditor.show(tab.view);
+      this.props.clear('Veritabanı penceresi: sütunları "Tablo Tasarımı", kayıtları "Verileri Göster" sekmesinde düzenleyin.');
+    } else if (tab.kind === 'code') {
       this.editor.show(tab.name);
       this.props.clear(this.formOfFile(tab.name) ? 'Özellikler tasarım görünümünde düzenlenir (Shift+F7).' : 'Bu dosyanın özelliği yok.');
       this.editor.focus();
@@ -378,7 +414,7 @@ export class Ide {
   renderTabs() {
     this.tabBar.innerHTML = '';
     for (const t of this.tabs) {
-      const icon = t.kind === 'design' ? '\u{1F5D4}' : this.isGenerated(t.name) ? '\u{1F512}' : '';
+      const icon = t.kind === 'design' ? '\u{1F5D4}' : t.kind === 'data' ? '\u{1F6E2}' : this.isGenerated(t.name) ? '\u{1F512}' : '';
       const el = h('div', { class: 'tab' + (this.active?.key === t.key ? ' active' : ''), title: t.title },
         icon ? h('span', { class: 'tab-kind' }, icon) : null,
         h('span', { class: 'tab-label' }, t.title),
@@ -404,6 +440,13 @@ export class Ide {
       return el;
     };
     item('tree-root', '\u{1F4C1}', this.name, { title: `Ad alanı: ${this.data.namespace}` });
+    const db = this.data.database;
+    if (db) {
+      item('tree-child', '\u{1F6E2}', `${db.name}.mdf`, { active: activeName === `${db.name}.mdf` && this.active?.view !== 'design', click: () => this.openData('data'), title: 'Veritabanı: kayıtları ve tablo tasarımını görüntüle' });
+      item('tree-child', '\u{1F5C3}', `${db.dataSet}.xsd`, { active: activeName === `${db.name}.mdf` && this.active?.view === 'design', click: () => this.openData('design'), title: 'Veri kümesi (DataSet): tablo ve sütunlar' });
+      const dsFile = designerFileName(db);
+      item('tree-child2', '\u{1F512}', dsFile, { active: activeName === dsFile, click: () => this.openCode(dsFile), title: 'Veri kümesi sihirbazının ürettiği kod (salt okunur)' });
+    }
     const files = [...this.data.files].sort((a, b) => (a.name === 'Program.cs' ? -1 : b.name === 'Program.cs' ? 1 : a.name.localeCompare(b.name)));
     for (const f of files) {
       if (this.isGenerated(f.name)) continue;
@@ -418,6 +461,7 @@ export class Ide {
         item('tree-child2', '\u{1F512}', `${form}.Designer.cs`, { active: activeName === `${form}.Designer.cs`, click: () => this.openCode(`${form}.Designer.cs`), title: 'Tasarımcının ürettiği kod (salt okunur)' });
       } else {
         const canDelete = !this.readonly && f.name !== 'Program.cs';
+        if (this.data.database && f.name === designerFileName(this.data.database)) continue;
         item('tree-child', '\u{1F4C4}', f.name, {
           active: activeName === f.name,
           click: () => this.openCode(f.name),
@@ -429,12 +473,23 @@ export class Ide {
 
   renderToolbox() {
     this.toolbox.innerHTML = '';
-    for (const g of TOOLBOX_GROUPS) {
+    const groups = [...TOOLBOX_GROUPS];
+    const db = this.data.database;
+    if (db) {
+      // VS: projeyi derleyince araç kutusunda "<Proje> Bileşenleri" altında veri kümesi ve TableAdapter'lar görünür
+      groups.unshift({
+        title: `${this.data.namespace} Bileşenleri`,
+        items: ['TypedDataSet', ...db.tables.map((t) => `TableAdapter:${t.name}`), 'TableAdapterManager'],
+        titles: { TypedDataSet: db.dataSet, ...Object.fromEntries(db.tables.map((t) => [`TableAdapter:${t.name}`, `${t.name}TableAdapter`])) },
+      });
+    }
+    for (const g of groups) {
       this.toolbox.appendChild(h('div', { class: 'toolbox-group' }, g.title));
       for (const type of g.items) {
-        const info = CONTROLS[type];
-        const el = h('div', { class: 'tool', draggable: 'true', title: `${info.title} — ${info.desc}\nSürükleyip forma bırakın ya da çift tıklayın.` },
-          h('span', { class: 'tool-icon' }, info.icon), h('span', {}, info.title));
+        const info = CONTROLS[type.split(':')[0]];
+        const title = g.titles?.[type] || info.title;
+        const el = h('div', { class: 'tool', draggable: 'true', title: `${title} — ${info.desc}\nSürükleyip forma bırakın ya da çift tıklayın.` },
+          h('span', { class: 'tool-icon' }, info.icon), h('span', {}, title));
         el.dataset.type = type;
         el.addEventListener('dragstart', (e) => {
           e.dataTransfer.setData('text/x-wf-control', type);
@@ -503,7 +558,7 @@ export class Ide {
   onDesignChanged(formName) {
     const model = this.data.forms[formName];
     const name = `${formName}.Designer.cs`;
-    const content = generateDesigner(this.data.namespace, model);
+    const content = generateDesigner(this.data.namespace, model, this.data.database);
     let f = this.file(name);
     if (!f) {
       f = { name, content, generated: true };
@@ -514,6 +569,62 @@ export class Ide {
     this.editor.setFile(name, content, { readOnly: true });
     this.markDirty();
     this.scheduleCheck();
+  }
+
+  /** Veri penceresinde değişiklik: şema değiştiyse veri kümesi kodu yeniden üretilir. */
+  onDatabaseChanged(schema) {
+    if (this.readonly) return;
+    if (schema) {
+      const db = this.data.database;
+      const name = designerFileName(db);
+      const content = generateDataSet(this.data.namespace, db);
+      const f = this.file(name);
+      if (f && f.content !== content) {
+        f.content = content;
+        this.editor.setFile(name, content, { readOnly: true });
+      }
+      for (const form of Object.keys(this.data.forms)) this.onDesignChanged(form);
+      this.scheduleCheck();
+    }
+    this.markDirty();
+  }
+
+  /** Sütun adı değişince formlardaki bağlamalar ve tablo sütunları da güncellenir. */
+  renameDbColumn(table, oldName, newName) {
+    for (const form of Object.values(this.data.forms)) {
+      const sources = new Set((form.components || []).filter((c) => c.type === 'BindingSource' && c.props.DataMember === table).map((c) => c.name));
+      const walk = (list) => {
+        for (const c of list || []) {
+          const b = c.props?.DataBindings;
+          if (b) for (const k of Object.keys(b)) {
+            const [src, field] = String(b[k]).split('.');
+            if (sources.has(src) && field === oldName) b[k] = `${src}.${newName}`;
+          }
+          if (c.type === 'DataGridView' && sources.has(c.props.DataSource)) {
+            for (const col of c.props.Columns || []) {
+              if (col.props?.DataPropertyName === oldName) {
+                col.props.DataPropertyName = newName;
+                if (col.props.HeaderText === oldName) col.props.HeaderText = newName;
+              }
+            }
+          }
+          walk(c.controls);
+        }
+      };
+      walk(form.controls);
+    }
+    for (const d of this.designers.values()) d.refresh();
+  }
+
+  /** Çalışan program veritabanına kaydetti (TableAdapter.Update / UpdateAll). */
+  onDataFile(name, xml) {
+    const db = this.data.database;
+    if (!db || name !== dataFileName(db)) return;
+    const rows = parseDatabaseXml(db, xml);
+    if (!rows) return;
+    for (const t of db.tables) if (rows[t.name]) t.rows = rows[t.name];
+    if (!this.readonly) this.markDirty();
+    if (this.active?.kind === 'data') this.dataEditor?.render();
   }
 
   onSelectionChanged(designer) {
@@ -698,7 +809,7 @@ export class Ide {
   async exportZip() {
     try {
       const engine = await this.engine();
-      const bytes = engine.ExportZip(this.projectJson());
+      const bytes = engine.ExportZip(this.projectJson('zip'));
       download(`${asciiFileName(this.name)}.zip`, bytes, 'application/zip');
     } catch (e) {
       toast('ZIP oluşturulamadı: ' + e.message, 'error');
@@ -806,7 +917,7 @@ export class Ide {
     const t0 = performance.now();
     let r;
     try {
-      r = JSON.parse(engine.Build(this.projectJson()));
+      r = JSON.parse(engine.Build(this.projectJson(true)));
     } catch (e) {
       this.log('Derleyici hatası: ' + e.message, 'o-err');
       this.showBottom('output');
@@ -881,6 +992,7 @@ export class Ide {
         onError: (info) => this.runtimeError(info),
         onEnded: (reason) => this.programEnded(reason),
         onDownload: (name, b64) => this.offerDownload(name, b64),
+        onDataFile: (name, content) => this.onDataFile(name, content),
       });
     }
     this.overlay.classList.remove('hidden');

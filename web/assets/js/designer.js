@@ -2,6 +2,10 @@
 import { createItem, setProp, measureText } from './winui.js';
 import { CONTROLS, STRIP_ITEMS, STRIP_ADDABLE, colorToCss, fontToCss, DEFAULT_FONT, propDefault } from './catalog.js';
 import { stripItemsOf } from './codegen.js';
+import { navigatorItems, navigatorRefs, gridColumnsFor } from './dbtemplate.js';
+import { instanceName } from './datasetgen.js';
+
+const NAV_GLYPHS = { AddNewItem: '✚', DeleteItem: '✖', MoveFirstItem: '⏮', MovePreviousItem: '◀', MoveNextItem: '▶', MoveLastItem: '⏭' };
 import { h } from './ui.js';
 
 const FORM = '$form';
@@ -308,7 +312,16 @@ export class FormDesigner {
   renderStrip(it, owner, kind) {
     const host = it.client || it.el;
     const path = this.openPath();
-    for (const item of owner.props.StripItems || []) host.appendChild(this.renderStripItem(item, path));
+    const glyphs = {};
+    if (owner.type === 'BindingNavigator') {
+      for (const [k, g] of Object.entries(NAV_GLYPHS)) if (owner.props[k]) glyphs[owner.props[k]] = g;
+      for (const item of owner.props.StripItems || []) if (/SaveItem$/.test(item.name)) glyphs[item.name] = '💾';
+    }
+    for (const item of owner.props.StripItems || []) {
+      const el = this.renderStripItem(item, path);
+      if (glyphs[item.name]) setProp(this.items.get(item.name), 'glyph', glyphs[item.name]);
+      host.appendChild(el);
+    }
     if (!this.readOnly && (this.selection.includes(owner.name) || [...path].some((n) => this.find(n)?.strip === owner) || !(owner.props.StripItems || []).length)) {
       host.appendChild(this.typeHere(owner.name, kind));
     }
@@ -518,6 +531,7 @@ export class FormDesigner {
       case 'MenuStrip':
       case 'ToolStrip':
       case 'StatusStrip':
+      case 'BindingNavigator':
         this.renderStrip(it, c, CONTROLS[t].strip);
         if (p.GripStyle === 'Hidden' || t === 'MenuStrip' || t === 'StatusStrip') setProp(it, 'grip', '0');
         break;
@@ -775,13 +789,29 @@ export class FormDesigner {
 
   addControl(type, parent, x, y, size) {
     if (this.readOnly) return;
+    let table = null;
+    if (type.startsWith('TableAdapter:')) {
+      table = type.substring(13);
+      type = 'TableAdapter';
+    }
     const info = CONTROLS[type];
     if (!info) return;
+    const db = this.host.data.database;
     this.snapshot();
-    const name = this.uniqueName(info.prefix);
+    let name = this.uniqueName(info.prefix);
+    if (type === 'TypedDataSet' && db) name = this.allNames().has(instanceName(db.dataSet)) ? this.uniqueName(instanceName(db.dataSet)) : instanceName(db.dataSet);
+    if (type === 'TableAdapter' && table) name = this.allNames().has(`${table}TableAdapter`) ? this.uniqueName(`${table}TableAdapter`) : `${table}TableAdapter`;
+    if (type === 'TableAdapterManager') name = this.allNames().has('tableAdapterManager') ? this.uniqueName('tableAdapterManager') : 'tableAdapterManager';
     if (info.component) {
       this.model.components ??= [];
-      this.model.components.push({ type, name, props: info.defaults(name), events: {} });
+      const props = info.defaults(name);
+      if (type === 'TypedDataSet' && db) Object.assign(props, { DataSetName: db.dataSet, SchemaSerializationMode: 'IncludeSchema' });
+      if (type === 'TableAdapter') props.Table = table || db?.tables[0]?.name;
+      if (type === 'TableAdapterManager') {
+        props.AdapterRef = {};
+        for (const c of this.model.components) if (c.type === 'TableAdapter') props.AdapterRef[`${c.props.Table}TableAdapter`] ??= c.name;
+      }
+      this.model.components.push({ type, name, props, events: {} });
       this.selection = [name];
       this.commit();
       this.host.clearActiveTool?.();
@@ -800,6 +830,22 @@ export class FormDesigner {
         const pn = this.uniqueName('tabPage', reserved);
         return { type: 'TabPage', name: pn, props: { ...CONTROLS.TabPage.defaults(pn), TabIndex: i - 1 }, events: {}, controls: [] };
       });
+    }
+    if (type === 'BindingNavigator') {
+      // VS: araç kutusundan eklenen gezgin standart öğelerle gelir
+      const reserved = new Set();
+      const items = navigatorItems();
+      const rename = {};
+      for (const it of items) {
+        const n = this.allNames().has(it.name) || reserved.has(it.name) ? this.uniqueName(it.name, reserved) : it.name;
+        reserved.add(n);
+        rename[it.name] = n;
+        it.name = n;
+      }
+      props.StripItems = items;
+      for (const [k, v] of Object.entries(navigatorRefs())) props[k] = rename[v];
+      const bs = (this.model.components || []).find((c) => c.type === 'BindingSource');
+      if (bs) props.BindingSourceRef = bs.name;
     }
     if (info.strip) {
       const [cw] = parent === FORM ? (this.model.props.ClientSize || [800, 450]) : this.find(parent).control.props.Size;
@@ -1281,6 +1327,25 @@ export class FormDesigner {
     this.commit();
     this.host.renameInCode(this.formName, oldName, newName);
     return true;
+  }
+
+  /** DataGridView'in DataSource'u seçilince sütunlar tablodan üretilir (VS'deki gibi). */
+  setGridDataSource(name, bsName) {
+    if (this.readOnly) return;
+    const grid = this.find(name)?.control;
+    if (!grid) return;
+    this.snapshot();
+    if (!bsName) delete grid.props.DataSource;
+    else {
+      grid.props.DataSource = bsName;
+      const bs = (this.model.components || []).find((c) => c.name === bsName);
+      const table = this.host.data.database?.tables.find((x) => x.name === bs?.props.DataMember);
+      if (table && !(grid.props.Columns || []).length) {
+        grid.props.Columns = gridColumnsFor(table, this.allNames());
+        grid.props.AutoGenerateColumns = false;
+      }
+    }
+    this.commit();
   }
 
   /** TabPages düzenleyicisinden gelen sekme listesi: [{ page (var olan model ya da null), name, text }] */

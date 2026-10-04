@@ -178,6 +178,9 @@ const creators = {
     el.innerHTML = '<span class="wf-grip-dots"></span>';
     return { el, client: el };
   },
+  BindingNavigator() {
+    return creators.ToolStrip();
+  },
   MenuStrip() {
     const el = div('wf-ctl wf-strip wf-menustrip');
     return { el, client: el };
@@ -411,6 +414,23 @@ function setToolStripProp(item, prop, value) {
     case 'tooltip':
       el.title = value;
       return true;
+    case 'glyph': {
+      // BindingNavigator düğmeleri: VS'deki simgelerin yerine karakter
+      if (!item.glyphEl) {
+        item.glyphEl = document.createElement('span');
+        item.glyphEl.className = 'wf-tsglyph';
+        (item.el.querySelector('.wf-tsrow') || item.el).insertBefore(item.glyphEl, item.textEl || null);
+      }
+      item.glyphEl.textContent = value;
+      el.classList.toggle('wf-tshasglyph', !!value);
+      return true;
+    }
+    case 'width': {
+      const w = Number(value) || 0;
+      el.style.width = w ? w + 'px' : '';
+      if (item.input) item.input.style.width = w ? Math.max(10, w - 4) + 'px' : '';
+      return true;
+    }
     default:
       return false;
   }
