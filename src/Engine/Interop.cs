@@ -34,7 +34,7 @@ namespace CLesson.Engine
             if (lastBuild == null || !lastBuild.Success) return "Önce projeyi hatasız derleyin.";
             try
             {
-                ProgramRunner.Run(lastBuild.Assembly, lastBuild.Pdb);
+                ProgramRunner.Run(lastBuild.Assembly, lastBuild.Pdb, lastBuild.DataFiles);
                 return "";
             }
             catch (Exception ex)

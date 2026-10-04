@@ -1,7 +1,21 @@
 // Form tasarımından Visual Studio ile aynı biçimde Form1.Designer.cs kodu üretir.
 import { PROPS, CONTROLS, FORM_INFO, COLOR_NAMES, SYSTEM_COLORS, propDefault, codeName, eventTypes } from './catalog.js';
 
-const NEEDS_INIT = new Set(['NumericUpDown', 'TrackBar', 'PictureBox', 'DataGridView']);
+const NEEDS_INIT = new Set(['NumericUpDown', 'TrackBar', 'PictureBox', 'DataGridView', 'BindingNavigator']);
+
+/** Üretim sırasında ad alanı ve proje veritabanı (veri bileşenlerinin tür adları için). */
+let ctx = { ns: 'WinFormsApp', db: null };
+
+/** Bileşenin C# tür adı (veri kümesi sihirbazı türleri projeye özgüdür). */
+export function componentType(c, ns = ctx.ns, db = ctx.db) {
+  const dsName = db?.dataSet || 'DataSet1';
+  switch (c.type) {
+    case 'TypedDataSet': return `${ns}.${dsName}`;
+    case 'TableAdapter': return `${ns}.${dsName}TableAdapters.${c.props?.Table || 'Table'}TableAdapter`;
+    case 'TableAdapterManager': return `${ns}.${dsName}TableAdapters.TableAdapterManager`;
+    default: return `System.Windows.Forms.${c.type}`;
+  }
+}
 
 export function csString(s) {
   return '"' + String(s ?? '')
@@ -126,7 +140,14 @@ function valueExpr(prop, value, type) {
     case 'controlref':
       return value ? 'this.' + value : null;
     case 'mask':
+    case 'datamember':
       return value ? csString(value) : null;
+    case 'datasource':
+    case 'compref':
+    case 'itemref':
+      return value ? 'this.' + value : null;
+    case 'updateorder':
+      return value ? `${ctx.ns}.${ctx.db?.dataSet || 'DataSet1'}TableAdapters.TableAdapterManager.UpdateOrderOption.${value}` : null;
     case 'shortcut':
       return value ? csKeys(value) : null;
     default:
@@ -148,6 +169,19 @@ function propertyLines(target, type, props, isForm, children, isItem = false) {
         const coll = isItem ? 'DropDownItems' : 'Items';
         entries.push([coll, `${target}.${coll}.AddRange(new System.Windows.Forms.ToolStripItem[] {\n${items.map((c) => 'this.' + c.name).join(',\n')}});`]);
       }
+      continue;
+    }
+    if (prop === 'DataBindings') {
+      const b = props.DataBindings || {};
+      const lines = Object.keys(b).filter((k) => b[k]).map((k) => {
+        const [src, ...field] = String(b[k]).split('.');
+        return `${target}.DataBindings.Add(new System.Windows.Forms.Binding(${csString(k)}, this.${src}, ${csString(field.join('.'))}, true));`;
+      });
+      if (lines.length) entries.push(['DataBindings', lines.join('\n')]);
+      continue;
+    }
+    if (prop === 'AdapterRef') {
+      for (const [k, v] of Object.entries(props.AdapterRef || {})) if (v) entries.push([k, `${target}.${k} = this.${v};`]);
       continue;
     }
     if (prop.startsWith('ToolTip:')) {
@@ -254,14 +288,23 @@ function indentBlock(text, spaces) {
  * @param {string} ns  Ad alanı
  * @param {object} form  Tasarım modeli { name, props, events, controls, components }
  */
-export function generateDesigner(ns, form) {
+export function generateDesigner(ns, form, db = null) {
+  ctx = { ns, db };
   const all = flatten(form.controls);
-  const components = form.components || [];
+  const allComponents = form.components || [];
+  // Veri bileşenleri (DataSet, BindingSource, TableAdapter...) VS'deki gibi önce oluşturulur.
+  const dataComponents = allComponents.filter((c) => CONTROLS[c.type]?.data);
+  const components = allComponents.filter((c) => !CONTROLS[c.type]?.data);
   const body = [];
 
-  const needsContainer = components.some((c) => !CONTROLS[c.type]?.noContainer);
+  const needsContainer = allComponents.some((c) => !CONTROLS[c.type]?.noContainer) || all.some(({ control }) => CONTROLS[control.type]?.ctorComponents);
   if (needsContainer) body.push('this.components = new System.ComponentModel.Container();');
-  for (const { control } of all) body.push(`this.${control.name} = new System.Windows.Forms.${control.type}();`);
+  for (const c of dataComponents) {
+    body.push(CONTROLS[c.type]?.noContainer ? `this.${c.name} = new ${componentType(c)}();` : `this.${c.name} = new ${componentType(c)}(this.components);`);
+  }
+  for (const { control } of all) {
+    body.push(CONTROLS[control.type]?.ctorComponents ? `this.${control.name} = new System.Windows.Forms.${control.type}(this.components);` : `this.${control.name} = new System.Windows.Forms.${control.type}();`);
+  }
   for (const c of components) {
     if (CONTROLS[c.type]?.strip) body.push(`this.${c.name} = new System.Windows.Forms.${c.type}(this.components);`);
   }
@@ -276,12 +319,28 @@ export function generateDesigner(ns, form) {
 
   const containers = all.filter(({ control }) => control.controls?.length || CONTROLS[control.type]?.strip);
   const stripComponents = components.filter((c) => CONTROLS[c.type]?.strip);
+  const initComponents = dataComponents.filter((c) => CONTROLS[c.type]?.init);
+  for (const c of initComponents) body.push(`((System.ComponentModel.ISupportInitialize)(this.${c.name})).BeginInit();`);
   for (const c of stripComponents) body.push(`this.${c.name}.SuspendLayout();`);
   for (const { control } of containers) body.push(`this.${control.name}.SuspendLayout();`);
   for (const { control } of all) {
     if (NEEDS_INIT.has(control.type)) body.push(`((System.ComponentModel.ISupportInitialize)(this.${control.name})).BeginInit();`);
   }
   body.push('this.SuspendLayout();');
+
+  for (const c of dataComponents) {
+    body.push('// ');
+    body.push(`// ${c.name}`);
+    body.push('// ');
+    const props = { ...c.props, Name: c.name };
+    if (c.type === 'TypedDataSet') {
+      props.DataSetName ??= ctx.db?.dataSet;
+      props.SchemaSerializationMode ??= 'IncludeSchema';
+    }
+    const lines = propertyLines(`this.${c.name}`, c.type, props, false, []).filter((l) => !l.includes('.Name = '));
+    body.push(...lines);
+    body.push(...eventLines(`this.${c.name}`, c.events));
+  }
 
   for (const { control } of all) {
     const t = `this.${control.name}`;
@@ -332,6 +391,7 @@ export function generateDesigner(ns, form) {
   for (const { control } of [...all].reverse()) {
     if (NEEDS_INIT.has(control.type)) body.push(`((System.ComponentModel.ISupportInitialize)(this.${control.name})).EndInit();`);
   }
+  for (const c of [...initComponents].reverse()) body.push(`((System.ComponentModel.ISupportInitialize)(this.${c.name})).EndInit();`);
   for (const c of [...stripComponents].reverse()) body.push(`this.${c.name}.ResumeLayout(false);`);
   for (const { control } of [...containers].reverse()) {
     body.push(`this.${control.name}.ResumeLayout(false);`);
@@ -342,6 +402,7 @@ export function generateDesigner(ns, form) {
 
   const fields = [
     ...all.map(({ control }) => `private System.Windows.Forms.${control.type} ${control.name};`),
+    ...dataComponents.map((c) => `private ${componentType(c)} ${c.name};`),
     ...all.flatMap(({ control }) => columnsOf(control).map((col) => `private System.Windows.Forms.${col.type || 'DataGridViewTextBoxColumn'} ${col.name};`)),
     ...components.map((c) => `private System.Windows.Forms.${c.type} ${c.name};`),
     ...[...all.map((e) => e.control), ...components].flatMap((o) => stripItemsOf(o).map((it) => `private System.Windows.Forms.${it.type} ${it.name};`)),

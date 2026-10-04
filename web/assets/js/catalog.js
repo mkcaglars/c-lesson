@@ -159,6 +159,27 @@ export const PROPS = {
   IsBalloon: { type: 'bool', cat: 'Görünüm', def: false },
   ToolTipTitle: { type: 'string', cat: 'Görünüm', def: '' },
   BlinkStyle: { type: 'enum', cat: 'Davranış', values: ['BlinkIfDifferentError', 'AlwaysBlink', 'NeverBlink'], def: 'BlinkIfDifferentError', enumType: 'System.Windows.Forms.ErrorBlinkStyle' },
+  // Veri bağlama
+  DataBindings: { type: 'databindings', cat: 'Veri', def: null, desc: 'Kontrolün özelliklerini veri kaynağındaki alanlara bağlar (ör. Text → ogrenciBindingSource - Ad).' },
+  DataSource: { type: 'datasource', cat: 'Veri', def: '', desc: 'Verilerin geldiği kaynak.' },
+  DataMember: { type: 'datamember', cat: 'Veri', def: '', desc: 'Veri kümesindeki tablo.' },
+  BindingSourceRef: { type: 'compref', cat: 'Veri', def: '', refType: 'BindingSource', code: 'BindingSource', desc: 'Gezinilecek kayıtların kaynağı.' },
+  AutoGenerateColumns: { type: 'bool', cat: 'Veri', def: true, hidden: true },
+  Sort: { type: 'string', cat: 'Veri', def: '', desc: 'Sıralama, ör. "Ad ASC".' },
+  DataSetName: { type: 'string', cat: 'Veri', def: '' },
+  SchemaSerializationMode: { type: 'enum', cat: 'Veri', values: ['ExcludeSchema', 'IncludeSchema'], def: '', enumType: 'System.Data.SchemaSerializationMode' },
+  ClearBeforeFill: { type: 'bool', cat: 'Veri', def: null, desc: 'Fill çağrılınca tablo önce temizlensin mi?' },
+  BackupDataSetBeforeUpdate: { type: 'bool', cat: 'Veri', def: null },
+  UpdateOrder: { type: 'updateorder', cat: 'Veri', def: '' },
+  AdapterRef: { type: 'adapterrefs', cat: 'Veri', def: null },
+  AddNewItem: { type: 'itemref', cat: 'Öğeler', def: '', desc: 'Tıklanınca yeni kayıt ekleyen öğe.' },
+  DeleteItem: { type: 'itemref', cat: 'Öğeler', def: '', desc: 'Tıklanınca geçerli kaydı silen öğe. Silmeden önce onay sormak için (yok) seçip öğenin Click olayını yazın.' },
+  MoveFirstItem: { type: 'itemref', cat: 'Öğeler', def: '' },
+  MovePreviousItem: { type: 'itemref', cat: 'Öğeler', def: '' },
+  MoveNextItem: { type: 'itemref', cat: 'Öğeler', def: '' },
+  MoveLastItem: { type: 'itemref', cat: 'Öğeler', def: '' },
+  CountItem: { type: 'itemref', cat: 'Öğeler', def: '' },
+  PositionItem: { type: 'itemref', cat: 'Öğeler', def: '' },
   AcceptButton: { type: 'controlref', cat: 'Davranış', def: '', refType: 'Button', desc: 'Enter tuşuna basınca tıklanacak düğme.' },
   CancelButton: { type: 'controlref', cat: 'Davranış', def: '', refType: 'Button', desc: 'Esc tuşuna basınca tıklanacak düğme.' },
   MainMenuStrip: { type: 'controlref', cat: 'Davranış', def: '', refType: 'MenuStrip', desc: 'Formun ana menüsü.' },
@@ -202,6 +223,8 @@ export const EVENT_TYPES = {
   UserDeletedRow: ['System.Windows.Forms.DataGridViewRowEventHandler', 'DataGridViewRowEventArgs'],
   UserDeletingRow: ['System.Windows.Forms.DataGridViewRowCancelEventHandler', 'DataGridViewRowCancelEventArgs'],
   DataBindingComplete: ['System.Windows.Forms.DataGridViewBindingCompleteEventHandler', 'DataGridViewBindingCompleteEventArgs'],
+  ListChanged: ['System.ComponentModel.ListChangedEventHandler', 'System.ComponentModel.ListChangedEventArgs'],
+  AddingNew: ['System.ComponentModel.AddingNewEventHandler', 'System.ComponentModel.AddingNewEventArgs'],
   MaskInputRejected: ['System.Windows.Forms.MaskInputRejectedEventHandler', 'MaskInputRejectedEventArgs'],
   Selecting: ['System.Windows.Forms.TabControlCancelEventHandler', 'TabControlCancelEventArgs'],
   Selected: ['System.Windows.Forms.TabControlEventHandler', 'TabControlEventArgs'],
@@ -234,10 +257,12 @@ export const EVENT_DESC = {
   MaskInputRejected: 'Maskeye uymayan bir karakter yazıldığında', Selecting: 'Sekme değişmek üzereyken (iptal edilebilir)',
   ItemClicked: 'Çubuktaki bir öğeye tıklandığında', DropDownOpening: 'Alt menü açılmak üzereyken', Opening: 'Menü açılmak üzereyken (iptal edilebilir)',
   FileOk: 'Kullanıcı dosyayı seçip Aç/Kaydet dediğinde',
+  ListChanged: 'Listeye kayıt eklenince, silinince, filtre değişince', PositionChanged: 'Geçerli kayıt (konum) değişince', CurrentChanged: 'Geçerli kayıt değişince',
+  RefreshItems: 'Gezgin öğeleri güncellenince',
 };
 
 const COMMON_EVENTS = ['Click', 'DoubleClick', 'MouseClick', 'MouseDown', 'MouseUp', 'MouseMove', 'MouseEnter', 'MouseLeave', 'KeyDown', 'KeyUp', 'KeyPress', 'Enter', 'Leave', 'TextChanged', 'Resize', 'VisibleChanged', 'EnabledChanged', 'Validating'];
-const COMMON_PROPS = ['Name', 'Text', 'Location', 'Size', 'Anchor', 'Dock', 'BackColor', 'ForeColor', 'Font', 'Cursor', 'Enabled', 'Visible', 'TabIndex', 'TabStop', 'Tag', 'ContextMenuStrip'];
+const COMMON_PROPS = ['Name', 'Text', 'Location', 'Size', 'Anchor', 'Dock', 'BackColor', 'ForeColor', 'Font', 'Cursor', 'Enabled', 'Visible', 'TabIndex', 'TabStop', 'Tag', 'ContextMenuStrip', 'DataBindings'];
 
 /**
  * Kontrol türleri. prefix: varsayılan ad öneki. size: varsayılan boyut. defaults: eklenince ayarlanan özellikler.
@@ -353,7 +378,7 @@ export const CONTROLS = {
   },
   DataGridView: {
     title: 'DataGridView', desc: 'Satır ve sütunlu tablo', icon: '▦', prefix: 'dataGridView', size: [240, 150], init: true,
-    props: [...COMMON_PROPS.filter((p) => p !== 'Text'), 'Columns', 'AllowUserToAddRows', 'AllowUserToDeleteRows', 'ReadOnly', 'MultiSelect', 'GridSelectionMode', 'AutoSizeColumnsMode', 'ColumnHeadersHeightSizeMode', 'RowHeadersVisible', 'ColumnHeadersVisible', 'RowHeadersWidth', 'BackgroundColor', 'GridColor', 'BorderStyle'],
+    props: [...COMMON_PROPS.filter((p) => p !== 'Text'), 'DataSource', 'Columns', 'AllowUserToAddRows', 'AllowUserToDeleteRows', 'ReadOnly', 'MultiSelect', 'GridSelectionMode', 'AutoSizeColumnsMode', 'ColumnHeadersHeightSizeMode', 'RowHeadersVisible', 'ColumnHeadersVisible', 'RowHeadersWidth', 'BackgroundColor', 'GridColor', 'BorderStyle'],
     events: ['CellClick', 'CellContentClick', 'CellDoubleClick', 'CellValueChanged', 'CellEndEdit', 'CellBeginEdit', 'CellEnter', 'CellFormatting', 'CellMouseClick', 'ColumnHeaderMouseClick', 'RowHeaderMouseClick', 'SelectionChanged', 'CurrentCellChanged', 'RowEnter', 'RowsAdded', 'RowsRemoved', 'UserAddedRow', 'UserDeletingRow', 'UserDeletedRow', 'DataError', 'DataBindingComplete', 'Sorted', ...COMMON_EVENTS.filter((e) => e !== 'TextChanged')],
     defaultEvent: 'CellContentClick',
     defaults: () => ({ ColumnHeadersHeightSizeMode: 'AutoSize', RowHeadersWidth: 51 }),
@@ -428,6 +453,38 @@ export const CONTROLS = {
     props: ['Name', 'FileName', 'Filter', 'FilterIndex', 'Title', 'DefaultExt', 'InitialDirectory', 'OverwritePrompt', 'Tag'],
     events: ['FileOk'], defaultEvent: 'FileOk',
     defaults: () => ({}),
+  },
+  BindingSource: {
+    title: 'BindingSource', desc: 'Veri kaynağı ile kontroller arasındaki bağ (Filter, Position...)', icon: '\u{1F517}', prefix: 'bindingSource', component: true, init: true,
+    props: ['Name', 'DataSource', 'DataMember', 'Filter', 'Sort', 'Tag'],
+    events: ['ListChanged', 'PositionChanged', 'CurrentChanged', 'AddingNew', 'DataSourceChanged'], defaultEvent: 'CurrentChanged',
+    defaults: () => ({}),
+    data: true,
+  },
+  BindingNavigator: {
+    title: 'BindingNavigator', desc: 'Kayıtlar arasında gezinme çubuğu', icon: '⏯', prefix: 'bindingNavigator', size: [800, 25], strip: 'tool', init: true, ctorComponents: true,
+    props: ['Name', 'Text', 'BindingSourceRef', 'StripItems', 'AddNewItem', 'DeleteItem', 'MoveFirstItem', 'MovePreviousItem', 'MoveNextItem', 'MoveLastItem', 'PositionItem', 'CountItem', 'Dock', 'BackColor', 'ForeColor', 'Font', 'Enabled', 'Visible', 'GripStyle', 'Tag', 'TabIndex'],
+    events: ['RefreshItems', 'ItemClicked', 'Click'], defaultEvent: 'RefreshItems',
+    defaults: (n) => ({ Text: n, Dock: 'Top' }),
+    propDefaults: { Dock: 'Top' },
+  },
+  TypedDataSet: {
+    title: 'DataSet', desc: 'Veri kümesi (tablolar)', icon: '\u{1F5C3}', prefix: 'dataSet', component: true, init: true, noContainer: true, data: true, hidden: true,
+    props: ['Name', 'DataSetName', 'SchemaSerializationMode'],
+    events: [], defaultEvent: null,
+    defaults: () => ({}),
+  },
+  TableAdapter: {
+    title: 'TableAdapter', desc: 'Tabloyu doldurur (Fill) ve kaydeder (Update)', icon: '\u{1F504}', prefix: 'tableAdapter', component: true, noContainer: true, data: true, hidden: true,
+    props: ['Name', 'ClearBeforeFill'],
+    events: [], defaultEvent: null,
+    defaults: () => ({ ClearBeforeFill: true }),
+  },
+  TableAdapterManager: {
+    title: 'TableAdapterManager', desc: 'Tüm değişiklikleri kaydeder (UpdateAll)', icon: '\u{1F4BE}', prefix: 'tableAdapterManager', component: true, noContainer: true, data: true, hidden: true,
+    props: ['Name', 'BackupDataSetBeforeUpdate', 'AdapterRef', 'UpdateOrder'],
+    events: [], defaultEvent: null,
+    defaults: () => ({ BackupDataSetBeforeUpdate: false, UpdateOrder: 'InsertUpdateDelete' }),
   },
   Timer: {
     title: 'Timer', desc: 'Zamanlayıcı (görünmez)', icon: '⏱', prefix: 'timer', component: true,
@@ -507,7 +564,7 @@ export const TOOLBOX_GROUPS = [
   { title: 'Ortak Kontroller', items: ['Button', 'Label', 'TextBox', 'MaskedTextBox', 'CheckBox', 'RadioButton', 'ComboBox', 'ListBox', 'CheckedListBox', 'PictureBox', 'NumericUpDown', 'DateTimePicker', 'ProgressBar', 'TrackBar', 'LinkLabel', 'RichTextBox'] },
   { title: 'Kapsayıcılar', items: ['GroupBox', 'Panel', 'TabControl'] },
   { title: 'Menüler ve Araç Çubukları', items: ['MenuStrip', 'ToolStrip', 'StatusStrip', 'ContextMenuStrip'] },
-  { title: 'Veri', items: ['DataGridView'] },
+  { title: 'Veri', items: ['DataGridView', 'BindingSource', 'BindingNavigator'] },
   { title: 'Bileşenler', items: ['Timer', 'ToolTip', 'ErrorProvider'] },
   { title: 'İletişim Kutuları', items: ['OpenFileDialog', 'SaveFileDialog'] },
 ];

@@ -135,16 +135,20 @@ namespace System.Windows.Forms
         {
             var e = new AddingNewEventArgs();
             AddingNew?.Invoke(this, e);
-            if (e.NewObject != null && inner != null && !(inner is IBindingList))
-            {
-                inner.Add(e.NewObject);
-                Position = Count - 1;
-                return e.NewObject;
-            }
-            if (inner is not IBindingList bl || !bl.AllowNew) throw new InvalidOperationException("Bu veri kaynağına yeni kayıt eklenemez.");
+            // Önce geçerli kayıttaki düzenleme bitirilir (WinForms'taki gibi).
             manager.EndCurrentEdit();
-            manager.AddNew();
-            return Current;
+            object item;
+            if (e.NewObject != null)
+            {
+                if (inner == null) throw new InvalidOperationException("Veri kaynağı yok.");
+                inner.Add(e.NewObject);
+                item = e.NewObject;
+            }
+            else if (inner is IBindingList bl && bl.AllowNew) item = bl.AddNew();
+            else throw new InvalidOperationException("Bu veri kaynağına yeni kayıt eklenemez.");
+            int index = inner.IndexOf(item);
+            manager.MoveToNew(index >= 0 ? index : Count - 1);
+            return item;
         }
 
         public void RemoveCurrent()

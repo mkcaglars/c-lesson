@@ -130,6 +130,18 @@ namespace MiniWinForms
         internal static void Create(int id, string type) => Add("[\"c\"," + id + "," + J(type) + "]");
         internal static void Destroy(int id) => Add("[\"d\"," + id + "]");
         internal static void Parent(int id, int parentId) => Add("[\"p\"," + id + "," + parentId + "]");
+        /// <summary>Veri dosyasını (ör. okul.xml) uygulama klasörüne yazar; program değiştirince tarayıcıya bildirilir.</summary>
+        public static void WriteDataFile(string name, string content)
+        {
+            string path = System.IO.Path.Combine(System.Windows.Forms.Application.StartupPath, System.IO.Path.GetFileName(name));
+            System.IO.Directory.CreateDirectory(System.Windows.Forms.Application.StartupPath);
+            System.IO.File.WriteAllText(path, content ?? "", new UTF8Encoding(false));
+            System.Windows.Forms.VirtualFiles.WatchData(path);
+        }
+
+        /// <summary>Program veri dosyasını değiştirdi: proje verisi güncellensin.</summary>
+        internal static void DataFileChanged(string name, string content) => Add("[\"dbfile\"," + J(name) + "," + J(content) + "]");
+
         /// <summary>Programın kaydettiği dosyayı kullanıcıya indirme bağlantısı olarak sunar.</summary>
         internal static void Download(string name, string base64) => Add("[\"dl\"," + J(name) + "," + J(base64) + "]");
 

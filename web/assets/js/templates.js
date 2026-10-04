@@ -1,5 +1,7 @@
 // Yeni proje / form / sınıf şablonları (Visual Studio'nun .NET Framework şablonlarına benzer).
 import { generateDesigner } from './codegen.js';
+import { sampleDatabase, databaseForm } from './dbtemplate.js';
+import { generateDataSet, designerFileName } from './datasetgen.js';
 
 /** Proje adından geçerli bir C# ad alanı üretir ("Hesap Makinesi" → "HesapMakinesi"). */
 export function toNamespace(name) {
@@ -148,6 +150,21 @@ export const TEMPLATES = [
         }
 `);
       data.files.find((x) => x.name === 'Form1.Designer.cs').content = generateDesigner(ns, f);
+      return data;
+    },
+  },
+  {
+    id: 'veritabani',
+    title: 'Veritabanı Uygulaması (okul.mdf)',
+    desc: 'okul.mdf + OkulDataSet + 20 örnek öğrenci kaydı. Form, VS\'de alanlar forma sürüklendikten sonraki halidir (BindingNavigator, DataGridView, TextBox...).',
+    create(ns) {
+      const db = sampleDatabase();
+      const { form, code } = databaseForm(ns, db);
+      const data = { format: 1, namespace: ns, files: [], forms: { Form1: form }, database: db };
+      data.files.push({ name: 'Program.cs', content: programCs(ns) });
+      data.files.push({ name: 'Form1.cs', content: code });
+      data.files.push({ name: 'Form1.Designer.cs', content: generateDesigner(ns, form, db), generated: true });
+      data.files.push({ name: designerFileName(db), content: generateDataSet(ns, db), generated: true });
       return data;
     },
   },

@@ -124,7 +124,7 @@ namespace CLesson.Compiler
         public BuildResult Build(ProjectInput project)
         {
             var sw = Stopwatch.StartNew();
-            var result = new BuildResult();
+            var result = new BuildResult { DataFiles = project.DataFiles ?? new() };
             var comp = Update(project);
             result.FileNames = fileOrder.ToList();
 

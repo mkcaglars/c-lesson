@@ -196,17 +196,31 @@ namespace System.Windows.Forms
 
         public override void AddNew()
         {
+            if (list is BindingSource bs)
+            {
+                bs.AddNew();
+                return;
+            }
             if (list is IBindingList bl)
             {
                 EndCurrentEdit();
                 addingNew = true;
-                try { bl.AddNew(); }
+                object item;
+                try { item = bl.AddNew(); }
                 finally { addingNew = false; }
-                position = list.Count - 1;
-                OnPositionChanged();
-                OnCurrentChanged();
+                int index = list.IndexOf(item);
+                MoveToNew(index >= 0 ? index : list.Count - 1);
             }
             else throw new NotSupportedException("Bu listeye yeni kayıt eklenemez.");
+        }
+
+        /// <summary>Yeni eklenen (henüz kaydedilmemiş) kayda geçer; düzenleme bitirilmez.</summary>
+        internal void MoveToNew(int index)
+        {
+            if (list == null || index < 0 || index >= list.Count) return;
+            position = index;
+            OnPositionChanged();
+            OnCurrentChanged();
         }
 
         public override void RemoveAt(int index)

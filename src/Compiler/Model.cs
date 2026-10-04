@@ -16,6 +16,8 @@ namespace CLesson.Compiler
         [JsonPropertyName("name")] public string Name { get; set; } = "Proje";
         [JsonPropertyName("namespace")] public string Namespace { get; set; } = "WinFormsApp";
         [JsonPropertyName("files")] public List<ProjectFile> Files { get; set; } = new();
+        /// <summary>Program çalışırken uygulama klasöründe bulunacak veri dosyaları (ör. okul.xml).</summary>
+        [JsonPropertyName("dataFiles")] public List<ProjectFile> DataFiles { get; set; } = new();
 
         static readonly JsonSerializerOptions options = new() { PropertyNameCaseInsensitive = true };
 
@@ -45,6 +47,7 @@ namespace CLesson.Compiler
         [JsonPropertyName("ms")] public long ElapsedMs { get; set; }
         [JsonIgnore] public byte[] Assembly { get; set; }
         [JsonIgnore] public byte[] Pdb { get; set; }
+        [JsonIgnore] public List<ProjectFile> DataFiles { get; set; } = new();
 
         public string ToJson() => JsonSerializer.Serialize(this);
     }

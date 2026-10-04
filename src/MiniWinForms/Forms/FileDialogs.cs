@@ -17,6 +17,9 @@ namespace System.Windows.Forms
     {
         public const string Folder = "C:/Users/Ogrenci/Belgeler/";
         static readonly Dictionary<string, DateTime> watched = new Dictionary<string, DateTime>();
+        static readonly Dictionary<string, DateTime> watchedData = new Dictionary<string, DateTime>();
+
+        public static void WatchData(string path) => watchedData[path] = File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.MinValue;
 
         public static string PathOf(string name) => Folder + name;
 
@@ -51,6 +54,18 @@ namespace System.Windows.Forms
         /// <summary>Her tur sonunda (Flush) çağrılır: izlenen dosyalar değiştiyse tarayıcıya gönderir.</summary>
         public static void CheckWatched()
         {
+            foreach (var path in new List<string>(watchedData.Keys))
+            {
+                try
+                {
+                    if (!File.Exists(path)) continue;
+                    var t = File.GetLastWriteTimeUtc(path);
+                    if (t == watchedData[path]) continue;
+                    watchedData[path] = t;
+                    Ui.DataFileChanged(Path.GetFileName(path), File.ReadAllText(path));
+                }
+                catch { /* sonraki turda */ }
+            }
             if (watched.Count == 0) return;
             foreach (var path in new List<string>(watched.Keys))
             {
@@ -67,7 +82,7 @@ namespace System.Windows.Forms
             }
         }
 
-        public static void Reset() => watched.Clear();
+        public static void Reset() { watched.Clear(); watchedData.Clear(); }
 
         /// <summary>Filtre metni ("Resimler|*.jpg;*.png|Tüm Dosyalar|*.*") → [(ad, desenler)].</summary>
         public static List<(string name, string patterns)> ParseFilter(string filter)

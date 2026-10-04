@@ -9,9 +9,14 @@ namespace CLesson.Compiler
     {
         static bool consoleHooked;
 
-        public static void Run(byte[] assembly, byte[] pdb)
+        public static void Run(byte[] assembly, byte[] pdb) => Run(assembly, pdb, null);
+
+        /// <summary>Programı çalıştırır. Veri dosyaları (ör. okul.xml) uygulama klasörüne yazılır ve izlenir.</summary>
+        public static void Run(byte[] assembly, byte[] pdb, IEnumerable<ProjectFile> dataFiles)
         {
             Ui.Reset();
+            if (dataFiles != null)
+                foreach (var f in dataFiles) Ui.WriteDataFile(f.Name, f.Content);
             HookConsole();
             SynchronizationContext.SetSynchronizationContext(new UiSynchronizationContext());
             var asm = pdb != null ? Assembly.Load(assembly, pdb) : Assembly.Load(assembly);
