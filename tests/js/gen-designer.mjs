@@ -36,12 +36,20 @@ Object.assign(find('dateTimePicker1').props, { Format: 'Short' });
 Object.assign(find('pictureBox1').props, { ImageLocation: 'https://example.com/a.png', SizeMode: 'Zoom', BorderStyle: 'Fixed3D' });
 Object.assign(find('checkBox1').props, { Checked: true, BackColor: 'SystemColors.Control' });
 Object.assign(find('button1').props, { FlatStyle: 'Flat', Enabled: false, Tag: 'etiket' });
+Object.assign(find('dataGridView1').props, {
+  GridSelectionMode: 'FullRowSelect', AutoSizeColumnsMode: 'Fill', AllowUserToAddRows: false, BackgroundColor: 'White',
+  Columns: [
+    { name: 'colAd', type: 'DataGridViewTextBoxColumn', props: { HeaderText: 'Öğrenci Adı', Width: 150 } },
+    { name: 'colAktif', type: 'DataGridViewCheckBoxColumn', props: { HeaderText: 'Aktif', ReadOnly: true } },
+    { name: 'colSec', type: 'DataGridViewComboBoxColumn', props: { HeaderText: 'Seç', Items: ['A', 'B'] } },
+  ],
+});
 // İç içe kontrol
 find('panel1').controls.push({ type: 'RadioButton', name: 'radioButton2', props: { Text: 'iç', AutoSize: true, Location: [5, 5], Size: [40, 19], Checked: true, Anchor: 'Bottom, Right' }, events: { CheckedChanged: 'radioButton2_CheckedChanged' } });
 find('groupBox1').controls.push({ type: 'Panel', name: 'panel2', props: { Location: [5, 20], Size: [50, 50], Dock: 'Fill' }, controls: [{ type: 'Button', name: 'button2', props: { Text: 'derin', Location: [1, 1], Size: [40, 20] }, events: { MouseMove: 'button2_MouseMove', KeyPress: 'button2_KeyPress' } }], events: {} });
 
 const handlers = [];
-const sig = { MouseMove: 'MouseEventArgs', KeyPress: 'KeyPressEventArgs', FormClosing: 'FormClosingEventArgs', LinkClicked: 'LinkLabelLinkClickedEventArgs', ItemCheck: 'ItemCheckEventArgs' };
+const sig = { CellContentClick: 'DataGridViewCellEventArgs', MouseMove: 'MouseEventArgs', KeyPress: 'KeyPressEventArgs', FormClosing: 'FormClosingEventArgs', LinkClicked: 'LinkLabelLinkClickedEventArgs', ItemCheck: 'ItemCheckEventArgs' };
 const collect = (list) => {
   for (const c of list) {
     for (const [evt, h] of Object.entries(c.events || {})) handlers.push(`        private void ${h}(object sender, ${sig[evt] || 'EventArgs'} e) { Olaylar.Add("${h}"); }`);

@@ -385,3 +385,11 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; }
 .dsurface .d-outline { outline: 1px dashed #9a9a9a; outline-offset: -1px; }
 .runtime-error-line { background: rgba(255, 60, 60, 0.16); }
 .runtime-error-glyph { background: #d92d20; }
+
+/* DataGridView sütun düzenleyicisi */
+.col-editor .col-list { display: flex; flex-direction: column; gap: 4px; max-height: 50vh; overflow: auto; }
+.col-editor .col-row { display: grid; grid-template-columns: 1.2fr 1.4fr 1.3fr 80px 70px 70px; gap: 6px; align-items: center; }
+.col-editor .col-head { font-weight: 600; font-size: 12px; color: var(--muted, #666); }
+.col-editor .col-center { text-align: center; }
+.col-editor .btn-small { padding: 2px 7px; margin-right: 3px; }
+.col-editor .col-list > .btn { align-self: flex-start; margin-top: 6px; }

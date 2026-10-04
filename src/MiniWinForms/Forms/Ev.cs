@@ -22,6 +22,18 @@ namespace System.Windows.Forms
                 case PaintEventHandler h: h(sender, (PaintEventArgs)e); return;
                 case LinkLabelLinkClickedEventHandler h: h(sender, (LinkLabelLinkClickedEventArgs)e); return;
                 case ItemCheckEventHandler h: h(sender, (ItemCheckEventArgs)e); return;
+                case DataGridViewCellEventHandler h: h(sender, (DataGridViewCellEventArgs)e); return;
+                case DataGridViewCellMouseEventHandler h: h(sender, (DataGridViewCellMouseEventArgs)e); return;
+                case DataGridViewCellCancelEventHandler h: h(sender, (DataGridViewCellCancelEventArgs)e); return;
+                case DataGridViewRowEventHandler h: h(sender, (DataGridViewRowEventArgs)e); return;
+                case DataGridViewRowCancelEventHandler h: h(sender, (DataGridViewRowCancelEventArgs)e); return;
+                case DataGridViewRowsAddedEventHandler h: h(sender, (DataGridViewRowsAddedEventArgs)e); return;
+                case DataGridViewRowsRemovedEventHandler h: h(sender, (DataGridViewRowsRemovedEventArgs)e); return;
+                case DataGridViewCellFormattingEventHandler h: h(sender, (DataGridViewCellFormattingEventArgs)e); return;
+                case DataGridViewCellValidatingEventHandler h: h(sender, (DataGridViewCellValidatingEventArgs)e); return;
+                case DataGridViewDataErrorEventHandler h: h(sender, (DataGridViewDataErrorEventArgs)e); return;
+                case DataGridViewBindingCompleteEventHandler h: h(sender, (DataGridViewBindingCompleteEventArgs)e); return;
+                case DataGridViewColumnEventHandler h: h(sender, (DataGridViewColumnEventArgs)e); return;
                 default: d.DynamicInvoke(sender, e); return;
             }
         }

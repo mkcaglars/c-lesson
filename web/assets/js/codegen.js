@@ -1,7 +1,7 @@
 // Form tasarımından Visual Studio ile aynı biçimde Form1.Designer.cs kodu üretir.
 import { PROPS, CONTROLS, FORM_INFO, COLOR_NAMES, SYSTEM_COLORS, propDefault, codeName, eventTypes } from './catalog.js';
 
-const NEEDS_INIT = new Set(['NumericUpDown', 'TrackBar', 'PictureBox']);
+const NEEDS_INIT = new Set(['NumericUpDown', 'TrackBar', 'PictureBox', 'DataGridView']);
 
 export function csString(s) {
   return '"' + String(s ?? '')
@@ -123,6 +123,13 @@ function propertyLines(target, type, props, isForm, children) {
   for (const prop of [...order, ...extra]) {
     if (!(prop in props)) continue;
     if (prop === 'Name') continue;
+    if (prop === 'Columns') {
+      const cols = props.Columns || [];
+      if (cols.length) {
+        entries.push(['Columns', `${target}.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {\n${cols.map((c) => '            this.' + c.name).join(',\n')}});`]);
+      }
+      continue;
+    }
     if (prop === 'Items') {
       const items = props.Items || [];
       if (items.length) {
@@ -145,6 +152,31 @@ function propertyLines(target, type, props, isForm, children) {
   entries.push(['Name', `${target}.Name = ${csString(props.Name)};`]);
   entries.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
   return entries.map((e) => e[1]);
+}
+
+/** DataGridView sütununun satırları (VS ile aynı sırada). */
+function columnLines(col) {
+  const t = `this.${col.name}`;
+  const p = col.props || {};
+  const lines = [];
+  if (p.AutoSizeMode && p.AutoSizeMode !== 'NotSet') lines.push(['AutoSizeMode', `${t}.AutoSizeMode = System.Windows.Forms.DataGridViewAutoSizeColumnMode.${p.AutoSizeMode};`]);
+  if (p.DataPropertyName) lines.push(['DataPropertyName', `${t}.DataPropertyName = ${csString(p.DataPropertyName)};`]);
+  if (p.FillWeight && Number(p.FillWeight) !== 100) lines.push(['FillWeight', `${t}.FillWeight = ${csFloat(p.FillWeight)};`]);
+  lines.push(['HeaderText', `${t}.HeaderText = ${csString(p.HeaderText ?? col.name)};`]);
+  if (p.Items?.length) lines.push(['Items', `${t}.Items.AddRange(new object[] {\n${p.Items.map((i) => '            ' + csString(i)).join(',\n')}});`]);
+  lines.push(['MinimumWidth', `${t}.MinimumWidth = 6;`]);
+  lines.push(['Name', `${t}.Name = ${csString(col.name)};`]);
+  if (p.ReadOnly) lines.push(['ReadOnly', `${t}.ReadOnly = true;`]);
+  if (p.Text) lines.push(['Text', `${t}.Text = ${csString(p.Text)};`]);
+  if (p.UseColumnTextForButtonValue) lines.push(['UseColumnTextForButtonValue', `${t}.UseColumnTextForButtonValue = true;`]);
+  if (p.Visible === false) lines.push(['Visible', `${t}.Visible = false;`]);
+  lines.push(['Width', `${t}.Width = ${Number(p.Width) || 125};`]);
+  lines.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  return lines.map((l) => l[1]);
+}
+
+function columnsOf(control) {
+  return control.type === 'DataGridView' ? (control.props?.Columns || []) : [];
 }
 
 function eventLines(target, events) {
@@ -184,6 +216,7 @@ export function generateDesigner(ns, form) {
 
   if (hasComponents) body.push('this.components = new System.ComponentModel.Container();');
   for (const { control } of all) body.push(`this.${control.name} = new System.Windows.Forms.${control.type}();`);
+  for (const { control } of all) for (const col of columnsOf(control)) body.push(`this.${col.name} = new System.Windows.Forms.${col.type || 'DataGridViewTextBoxColumn'}();`);
   for (const c of components) body.push(`this.${c.name} = new System.Windows.Forms.${c.type}(this.components);`);
 
   const containers = all.filter(({ control }) => control.controls?.length);
@@ -201,6 +234,12 @@ export function generateDesigner(ns, form) {
     const props = { ...control.props, Name: control.name };
     body.push(...propertyLines(t, control.type, props, false, control.controls || []));
     body.push(...eventLines(t, control.events));
+    for (const col of columnsOf(control)) {
+      body.push('// ');
+      body.push(`// ${col.name}`);
+      body.push('// ');
+      body.push(...columnLines(col));
+    }
   }
 
   for (const c of components) {
@@ -232,6 +271,7 @@ export function generateDesigner(ns, form) {
 
   const fields = [
     ...all.map(({ control }) => `private System.Windows.Forms.${control.type} ${control.name};`),
+    ...all.flatMap(({ control }) => columnsOf(control).map((col) => `private System.Windows.Forms.${col.type || 'DataGridViewTextBoxColumn'} ${col.name};`)),
     ...components.map((c) => `private System.Windows.Forms.${c.type} ${c.name};`),
   ];
 

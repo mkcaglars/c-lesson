@@ -1391,45 +1391,6 @@ namespace System.Windows.Forms
         }
     }
 
-    // ======================= Menü (derleme uyumluluğu) =======================
-
-    public class ToolStripItem : Component
-    {
-        public string Text { get; set; } = "";
-        public string Name { get; set; } = "";
-        public Size Size { get; set; }
-        public bool Enabled { get; set; } = true;
-        public bool Visible { get; set; } = true;
-        public object Tag { get; set; }
-        public event EventHandler Click;
-        public void PerformClick() => Click?.Invoke(this, EventArgs.Empty);
-    }
-
-    public class ToolStripMenuItem : ToolStripItem
-    {
-        public ToolStripMenuItem() { }
-        public ToolStripMenuItem(string text) { Text = text; }
-        public List<ToolStripItem> DropDownItems { get; } = new List<ToolStripItem>();
-        public Keys ShortcutKeys { get; set; }
-        public bool Checked { get; set; }
-        public bool CheckOnClick { get; set; }
-    }
-
-    public class ToolStripSeparator : ToolStripItem { }
-
-    public class MenuStrip : Control
-    {
-        internal override string UiType => "Panel";
-        protected override Size DefaultSize => new Size(200, 24);
-        public List<ToolStripItem> Items { get; } = new List<ToolStripItem>();
-        public ImageScalingSizeHelper ImageScalingSize { get; set; }
-    }
-
-    public struct ImageScalingSizeHelper
-    {
-        public static implicit operator ImageScalingSizeHelper(Size s) => new ImageScalingSizeHelper();
-    }
-
     public class ToolTip : Component
     {
         public ToolTip() { }

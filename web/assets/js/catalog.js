@@ -116,6 +116,19 @@ export const PROPS = {
   KeyPreview: { type: 'bool', cat: 'Davranış', def: false, desc: 'Tuş olaylarını önce form alsın mı?' },
   WindowState: { type: 'enum', cat: 'Pencere', values: ['Normal', 'Minimized', 'Maximized'], def: 'Normal', enumType: 'System.Windows.Forms.FormWindowState' },
   Opacity: { type: 'percent', cat: 'Pencere', def: 100 },
+  // DataGridView
+  Columns: { type: 'columns', cat: 'Veri', def: [], desc: 'Tablonun sütunları (Name, HeaderText, tür, genişlik).' },
+  AllowUserToAddRows: { type: 'bool', cat: 'Davranış', def: true, desc: 'En altta yeni kayıt satırı gösterilsin mi?' },
+  AllowUserToDeleteRows: { type: 'bool', cat: 'Davranış', def: true, desc: 'Kullanıcı Delete tuşuyla satır silebilsin mi?' },
+  MultiSelect: { type: 'bool', cat: 'Davranış', def: true, desc: 'Birden fazla satır/hücre seçilebilsin mi?' },
+  GridSelectionMode: { type: 'enum', cat: 'Davranış', values: ['CellSelect', 'FullRowSelect', 'FullColumnSelect', 'RowHeaderSelect', 'ColumnHeaderSelect'], def: 'RowHeaderSelect', enumType: 'System.Windows.Forms.DataGridViewSelectionMode', code: 'SelectionMode', desc: 'FullRowSelect: tıklanınca tüm satır seçilir.' },
+  AutoSizeColumnsMode: { type: 'enum', cat: 'Düzen', values: ['None', 'ColumnHeader', 'AllCellsExceptHeader', 'AllCells', 'DisplayedCellsExceptHeader', 'DisplayedCells', 'Fill'], def: 'None', enumType: 'System.Windows.Forms.DataGridViewAutoSizeColumnsMode', desc: 'Fill: sütunlar tablonun genişliğini doldurur.' },
+  ColumnHeadersHeightSizeMode: { type: 'enum', cat: 'Düzen', values: ['EnableResizing', 'DisableResizing', 'AutoSize'], def: 'EnableResizing', enumType: 'System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode' },
+  RowHeadersVisible: { type: 'bool', cat: 'Görünüm', def: true, desc: 'Soldaki satır başlıkları görünsün mü?' },
+  ColumnHeadersVisible: { type: 'bool', cat: 'Görünüm', def: true },
+  RowHeadersWidth: { type: 'int', cat: 'Düzen', def: 41 },
+  BackgroundColor: { type: 'color', cat: 'Görünüm', def: '', desc: 'Satırların dışında kalan alanın rengi.' },
+  GridColor: { type: 'color', cat: 'Görünüm', def: '', desc: 'Hücre çizgilerinin rengi.' },
   AcceptButton: { type: 'controlref', cat: 'Davranış', def: '', refType: 'Button', desc: 'Enter tuşuna basınca tıklanacak düğme.' },
   CancelButton: { type: 'controlref', cat: 'Davranış', def: '', refType: 'Button', desc: 'Esc tuşuna basınca tıklanacak düğme.' },
 };
@@ -136,6 +149,28 @@ export const EVENT_TYPES = {
   Validating: ['System.ComponentModel.CancelEventHandler', 'System.ComponentModel.CancelEventArgs'],
   LinkClicked: ['System.Windows.Forms.LinkLabelLinkClickedEventHandler', 'LinkLabelLinkClickedEventArgs'],
   ItemCheck: ['System.Windows.Forms.ItemCheckEventHandler', 'ItemCheckEventArgs'],
+  CellClick: ['System.Windows.Forms.DataGridViewCellEventHandler', 'DataGridViewCellEventArgs'],
+  CellContentClick: ['System.Windows.Forms.DataGridViewCellEventHandler', 'DataGridViewCellEventArgs'],
+  CellDoubleClick: ['System.Windows.Forms.DataGridViewCellEventHandler', 'DataGridViewCellEventArgs'],
+  CellContentDoubleClick: ['System.Windows.Forms.DataGridViewCellEventHandler', 'DataGridViewCellEventArgs'],
+  CellValueChanged: ['System.Windows.Forms.DataGridViewCellEventHandler', 'DataGridViewCellEventArgs'],
+  CellEndEdit: ['System.Windows.Forms.DataGridViewCellEventHandler', 'DataGridViewCellEventArgs'],
+  CellEnter: ['System.Windows.Forms.DataGridViewCellEventHandler', 'DataGridViewCellEventArgs'],
+  RowEnter: ['System.Windows.Forms.DataGridViewCellEventHandler', 'DataGridViewCellEventArgs'],
+  CellBeginEdit: ['System.Windows.Forms.DataGridViewCellCancelEventHandler', 'DataGridViewCellCancelEventArgs'],
+  CellMouseClick: ['System.Windows.Forms.DataGridViewCellMouseEventHandler', 'DataGridViewCellMouseEventArgs'],
+  CellMouseDoubleClick: ['System.Windows.Forms.DataGridViewCellMouseEventHandler', 'DataGridViewCellMouseEventArgs'],
+  ColumnHeaderMouseClick: ['System.Windows.Forms.DataGridViewCellMouseEventHandler', 'DataGridViewCellMouseEventArgs'],
+  RowHeaderMouseClick: ['System.Windows.Forms.DataGridViewCellMouseEventHandler', 'DataGridViewCellMouseEventArgs'],
+  CellFormatting: ['System.Windows.Forms.DataGridViewCellFormattingEventHandler', 'DataGridViewCellFormattingEventArgs'],
+  CellValidating: ['System.Windows.Forms.DataGridViewCellValidatingEventHandler', 'DataGridViewCellValidatingEventArgs'],
+  DataError: ['System.Windows.Forms.DataGridViewDataErrorEventHandler', 'DataGridViewDataErrorEventArgs'],
+  RowsAdded: ['System.Windows.Forms.DataGridViewRowsAddedEventHandler', 'DataGridViewRowsAddedEventArgs'],
+  RowsRemoved: ['System.Windows.Forms.DataGridViewRowsRemovedEventHandler', 'DataGridViewRowsRemovedEventArgs'],
+  UserAddedRow: ['System.Windows.Forms.DataGridViewRowEventHandler', 'DataGridViewRowEventArgs'],
+  UserDeletedRow: ['System.Windows.Forms.DataGridViewRowEventHandler', 'DataGridViewRowEventArgs'],
+  UserDeletingRow: ['System.Windows.Forms.DataGridViewRowCancelEventHandler', 'DataGridViewRowCancelEventArgs'],
+  DataBindingComplete: ['System.Windows.Forms.DataGridViewBindingCompleteEventHandler', 'DataGridViewBindingCompleteEventArgs'],
 };
 
 export function eventTypes(evt) {
@@ -152,6 +187,12 @@ export const EVENT_DESC = {
   CheckedChanged: 'İşaret durumu değiştiğinde', SelectedIndexChanged: 'Seçili öğe değiştiğinde', ValueChanged: 'Değer değiştiğinde',
   Tick: 'Her Interval milisaniyede bir', LinkClicked: 'Bağlantıya tıklandığında', Activated: 'Form etkinleştiğinde', Scroll: 'Kaydırıldığında',
   ItemCheck: 'Bir öğenin işareti değişmek üzereyken', Validating: 'Kontrolden çıkılırken doğrulama için',
+  CellClick: 'Bir hücreye (ya da başlığa) tıklandığında — e.RowIndex, e.ColumnIndex', CellContentClick: 'Hücrenin içeriğine (yazı, düğme, onay kutusu) tıklandığında',
+  CellDoubleClick: 'Hücreye çift tıklandığında', CellValueChanged: 'Hücrenin değeri değiştiğinde', CellEndEdit: 'Hücre düzenlemesi bittiğinde',
+  SelectionChanged: 'Seçili satır/hücreler değiştiğinde', CurrentCellChanged: 'Geçerli hücre değiştiğinde', RowEnter: 'Bir satıra girildiğinde',
+  UserDeletingRow: 'Kullanıcı Delete ile satır silmek üzereyken (iptal edilebilir)', UserAddedRow: 'Kullanıcı yeni satıra veri girdiğinde',
+  CellFormatting: 'Hücre ekrana yazılmadan önce (renk/biçim değiştirmek için)', DataError: 'Hücreye geçersiz veri girildiğinde',
+  ColumnHeaderMouseClick: 'Sütun başlığına tıklandığında', CellBeginEdit: 'Hücre düzenlenmeye başlanırken (iptal edilebilir)',
 };
 
 const COMMON_EVENTS = ['Click', 'DoubleClick', 'MouseClick', 'MouseDown', 'MouseUp', 'MouseMove', 'MouseEnter', 'MouseLeave', 'KeyDown', 'KeyUp', 'KeyPress', 'Enter', 'Leave', 'TextChanged', 'Resize', 'VisibleChanged', 'EnabledChanged', 'Validating'];
@@ -269,6 +310,14 @@ export const CONTROLS = {
     defaults: () => ({}),
     propDefaults: { BorderStyle: 'Fixed3D' },
   },
+  DataGridView: {
+    title: 'DataGridView', desc: 'Satır ve sütunlu tablo', icon: '▦', prefix: 'dataGridView', size: [240, 150], init: true,
+    props: [...COMMON_PROPS.filter((p) => p !== 'Text'), 'Columns', 'AllowUserToAddRows', 'AllowUserToDeleteRows', 'ReadOnly', 'MultiSelect', 'GridSelectionMode', 'AutoSizeColumnsMode', 'ColumnHeadersHeightSizeMode', 'RowHeadersVisible', 'ColumnHeadersVisible', 'RowHeadersWidth', 'BackgroundColor', 'GridColor', 'BorderStyle'],
+    events: ['CellClick', 'CellContentClick', 'CellDoubleClick', 'CellValueChanged', 'CellEndEdit', 'CellBeginEdit', 'CellEnter', 'CellFormatting', 'CellMouseClick', 'ColumnHeaderMouseClick', 'RowHeaderMouseClick', 'SelectionChanged', 'CurrentCellChanged', 'RowEnter', 'RowsAdded', 'RowsRemoved', 'UserAddedRow', 'UserDeletingRow', 'UserDeletedRow', 'DataError', 'DataBindingComplete', 'Sorted', ...COMMON_EVENTS.filter((e) => e !== 'TextChanged')],
+    defaultEvent: 'CellContentClick',
+    defaults: () => ({ ColumnHeadersHeightSizeMode: 'AutoSize', RowHeadersWidth: 51 }),
+    propDefaults: { BorderStyle: 'FixedSingle' },
+  },
   Timer: {
     title: 'Timer', desc: 'Zamanlayıcı (görünmez)', icon: '⏱', prefix: 'timer', component: true,
     props: ['Name', 'TimerEnabled', 'Interval', 'Tag'],
@@ -292,6 +341,7 @@ export const FORM_INFO = {
 export const TOOLBOX_GROUPS = [
   { title: 'Ortak Kontroller', items: ['Button', 'Label', 'TextBox', 'CheckBox', 'RadioButton', 'ComboBox', 'ListBox', 'CheckedListBox', 'PictureBox', 'NumericUpDown', 'DateTimePicker', 'ProgressBar', 'TrackBar', 'LinkLabel', 'RichTextBox'] },
   { title: 'Kapsayıcılar', items: ['GroupBox', 'Panel'] },
+  { title: 'Veri', items: ['DataGridView'] },
   { title: 'Bileşenler', items: ['Timer'] },
 ];
 
@@ -306,3 +356,13 @@ export function propDefault(type, prop) {
 export function codeName(prop) {
   return PROPS[prop]?.code || prop;
 }
+
+/** DataGridView sütun türleri. */
+export const COLUMN_TYPES = {
+  DataGridViewTextBoxColumn: 'Metin (TextBox)',
+  DataGridViewCheckBoxColumn: 'Onay kutusu (CheckBox)',
+  DataGridViewButtonColumn: 'Düğme (Button)',
+  DataGridViewComboBoxColumn: 'Açılır liste (ComboBox)',
+  DataGridViewLinkColumn: 'Bağlantı (Link)',
+  DataGridViewImageColumn: 'Resim (Image)',
+};

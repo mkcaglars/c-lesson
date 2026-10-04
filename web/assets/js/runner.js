@@ -1,5 +1,6 @@
 // Çalışan öğrenci programının "masaüstü"sü: pencereler, olaylar, zamanlayıcılar, iletişim kutuları.
-import { createItem, setProp, clientOf, measureText, ICONS, BUTTON_TEXT, BUTTON_SETS } from './winui.js';
+import { createItem, setProp, clientOf, measureText, orderChildren, ICONS, BUTTON_TEXT, BUTTON_SETS } from './winui.js';
+import { renderGrid, attachEditor, scrollToRow } from './grid.js';
 
 const KEY_EVENTS = new Set(['keydown', 'keyup', 'keypress']);
 
@@ -233,6 +234,7 @@ export class Desktop {
         const item = createItem(type, id);
         this.items.set(id, item);
         if (type === 'Form') this.setupWindow(item);
+        if (type === 'ContextMenuStrip') { item.el.classList.add('wf-hidden'); this.root.appendChild(item.el); }
         return;
       }
       case 's': {
@@ -242,6 +244,9 @@ export class Desktop {
         if (!item) return;
         if (item.type === 'Form') return this.setFormProp(item, prop, value);
         if (prop === 'listen') return this.setListen(item, value);
+        if (prop === 'itemorder') return orderChildren(clientOf(item), value ? value.split(',') : [], (i) => this.items.get(i));
+        if (prop === 'ctxmenu') { item.ctxmenu = Number(value); return; }
+        if (item.type === 'ContextMenuStrip' && prop === 'visible') return;
         setProp(item, prop, value);
         return;
       }
@@ -294,7 +299,22 @@ export class Desktop {
 
   callMethod(item, method, arg) {
     const input = item.input;
+    if (item.type === 'DataGridView') return this.gridMethod(item, method, arg);
     switch (method) {
+      case 'open':
+        this.openMenu(item);
+        return;
+      case 'close':
+        if (item.type === 'ContextMenuStrip') this.closeContext();
+        else this.closeMenus();
+        return;
+      case 'showat': {
+        const [cid, x, y] = String(arg).split(',').map(Number);
+        const host = cid ? this.items.get(cid) : null;
+        const hr = host ? host.el.getBoundingClientRect() : this.root.getBoundingClientRect();
+        this.showContext(item, hr.left + x, hr.top + y);
+        return;
+      }
       case 'focus':
         setTimeout(() => (input || item.el).focus?.(), 0);
         return;
@@ -669,8 +689,24 @@ export class Desktop {
 
   bindDelegated() {
     const root = this.root;
+    // Araç çubuğu / menü öğeleri
+    root.addEventListener('click', (e) => this.toolStripClick(e), true);
+    root.addEventListener('mouseover', (e) => this.toolStripHover(e));
+    root.addEventListener('change', (e) => {
+      const it = this.itemFrom(e.target);
+      if (it?.type === 'TSComboBox') this.dispatch(it.id, 'select', it.select.selectedIndex);
+    });
+    root.addEventListener('contextmenu', (e) => this.contextMenu(e), true);
+    document.addEventListener('mousedown', (e) => {
+      if (!e.target.closest?.('.wf-tsmenu, .wf-ctxmenu')) {
+        this.closeMenus();
+        this.closeContext();
+      }
+    });
+
     const mouse = (evt) => (e) => {
       const item = this.itemFrom(e.target);
+      if (item?.type.startsWith('TS')) return;
       if (!item || this.isDisabled(item) || !this.inClient(item, e.target)) return;
       if (evt === 'click' && (item.type === 'CheckBox' || item.type === 'RadioButton')) return;
       if (evt === 'click' && item.type === 'Button') {
@@ -695,8 +731,15 @@ export class Desktop {
     });
 
     root.addEventListener('keydown', (e) => {
+      if (this.handleShortcut(e)) return;
       const item = this.itemFrom(e.target);
       if (!item || this.isDisabled(item)) return;
+      if (item.type === 'DataGridView') { this.gridKey(item, e); return; }
+      if (item.type === 'TSTextBox') {
+        const r = this.dispatch(item.id, 'keydown', this.keyData(e));
+        if (r === 'handled') e.preventDefault();
+        return;
+      }
       if (this.listens(item, 'keydown')) {
         const r = this.dispatch(item.id, 'keydown', this.keyData(e));
         if (r === 'handled' || r === 'suppress') {
@@ -721,7 +764,7 @@ export class Desktop {
 
     root.addEventListener('keypress', (e) => {
       const item = this.itemFrom(e.target);
-      if (!item || this.isDisabled(item)) return;
+      if (!item || this.isDisabled(item) || item.type === 'DataGridView') return;
       if (item.suppressNextPress) {
         item.suppressNextPress = false;
         e.preventDefault();
@@ -753,7 +796,11 @@ export class Desktop {
     root.addEventListener('input', (e) => {
       const item = this.itemFrom(e.target);
       if (!item) return;
-      if (item.type === 'TextBox' || (item.type === 'ComboBox' && e.target === item.input)) {
+      if (item.type === 'DataGridView') {
+        if (item.editor?.input === e.target) this.dispatch(item.id, 'edittext', e.target.value);
+        return;
+      }
+      if (item.type === 'TextBox' || item.type === 'TSTextBox' || (item.type === 'ComboBox' && e.target === item.input)) {
         this.dispatch(item.id, 'input', e.target.value);
       } else if (item.type === 'TrackBar') {
         this.dispatch(item.id, 'input', e.target.value);
@@ -788,7 +835,16 @@ export class Desktop {
       if (!item || this.isDisabled(item)) return;
       if (item.type === 'ComboBox') this.comboMouse(item, e);
       else if (item.type === 'ListBox' || item.type === 'CheckedListBox') this.listMouse(item, e);
+      else if (item.type === 'DataGridView') this.gridMouse(item, e, false);
     });
+    root.addEventListener('dblclick', (e) => {
+      const item = this.itemFrom(e.target);
+      if (item?.type === 'DataGridView' && !this.isDisabled(item)) this.gridMouse(item, e, true);
+    });
+    root.addEventListener('click', (e) => {
+      // Tablodaki onay kutusunu motor değiştirir; tarayıcı kendisi değiştirmesin.
+      if (e.target.matches?.('.wf-grid input[type=checkbox]')) e.preventDefault();
+    }, true);
     root.addEventListener('keydown', (e) => {
       const item = this.itemFrom(e.target);
       if (!item || this.isDisabled(item)) return;
@@ -889,5 +945,256 @@ export class Desktop {
     const i = Math.max(0, Math.min(n - 1, cur + (e.key === 'ArrowDown' ? 1 : -1)));
     this.dispatch(item.id, 'select', String(i));
     item.el.querySelector(`.wf-list-item[data-index="${i}"]`)?.scrollIntoView({ block: 'nearest' });
+  }
+  // ------------------------------------------------------------------ menüler ve araç çubukları
+
+  stripOf(item) {
+    let it = item;
+    while (it && it.type.startsWith('TS')) it = this.items.get(it.parentId);
+    return it;
+  }
+
+  isTopLevelMenu(item) {
+    const parent = this.items.get(item.parentId);
+    return parent && !parent.type.startsWith('TS') && parent.type !== 'ContextMenuStrip';
+  }
+
+  hasChildren(item) {
+    return !!item.client && item.client.children.length > 0;
+  }
+
+  openMenu(item) {
+    if (!item.client) return;
+    if (this.isTopLevelMenu(item)) {
+      this.closeMenus(item);
+      this.menuActive = true;
+    }
+    if (!item.el.classList.contains('open')) {
+      item.el.classList.add('open');
+      // Açılır menü form kenarında kesilmesin diye ekrana göre konumlanır.
+      const r = item.el.getBoundingClientRect();
+      const drop = item.client;
+      drop.style.position = 'fixed';
+      if (this.isTopLevelMenu(item)) {
+        drop.style.left = r.left + 'px';
+        drop.style.top = r.bottom + 'px';
+      } else {
+        drop.style.left = r.right - 2 + 'px';
+        drop.style.top = r.top - 3 + 'px';
+      }
+      this.dispatch(item.id, 'opening');
+    }
+  }
+
+  closeMenus(except) {
+    for (const it of this.items.values()) {
+      if (it !== except && it.el.classList.contains('open') && (it.type === 'TSMenuItem' || it.type === 'TSDropDownButton')) {
+        it.el.classList.remove('open');
+        this.dispatch(it.id, 'closed');
+      }
+    }
+    if (!except) this.menuActive = false;
+  }
+
+  toolStripClick(e) {
+    const el = e.target.closest?.('.wf-tsitem');
+    if (!el || !this.root.contains(el)) return;
+    const item = this.items.get(Number(el.dataset.wfId));
+    if (!item || el.classList.contains('wf-tsdisabled') || el.closest('.wf-tsdisabled, .wf-disabled')) return;
+    if (item.type === 'TSTextBox' || item.type === 'TSComboBox' || item.type === 'TSSeparator') return;
+    e.stopPropagation();
+    const isMenu = item.type === 'TSMenuItem' || item.type === 'TSDropDownButton';
+    if (isMenu && this.hasChildren(item)) {
+      if (this.isTopLevelMenu(item) && item.el.classList.contains('open')) {
+        this.closeMenus();
+      } else {
+        this.openMenu(item);
+      }
+      this.dispatch(item.id, 'click');
+      return;
+    }
+    this.closeMenus();
+    this.closeContext();
+    this.dispatch(item.id, 'click');
+  }
+
+  toolStripHover(e) {
+    const el = e.target.closest?.('.wf-tsmenu');
+    if (!el) return;
+    const item = this.items.get(Number(el.dataset.wfId));
+    if (!item || !this.hasChildren(item)) return;
+    if (this.isTopLevelMenu(item)) {
+      if (this.menuActive && !item.el.classList.contains('open')) this.openMenu(item);
+    } else if (!item.el.classList.contains('open')) {
+      // Alt menü: kardeşlerin açık alt menülerini kapat
+      for (const sib of item.el.parentNode.children) {
+        if (sib !== item.el && sib.classList.contains('open')) sib.classList.remove('open');
+      }
+      this.openMenu(item);
+    }
+  }
+
+  keysValue(e) {
+    let code = e.keyCode || 0;
+    if (e.shiftKey) code |= 0x10000;
+    if (e.ctrlKey) code |= 0x20000;
+    if (e.altKey) code |= 0x40000;
+    return code;
+  }
+
+  /** Menü kısayol tuşları (ör. Ctrl+S). */
+  handleShortcut(e) {
+    if (!e.ctrlKey && !e.altKey && !(e.keyCode >= 112 && e.keyCode <= 123)) return false;
+    const keys = this.keysValue(e);
+    const from = this.itemFrom(e.target);
+    const form = from ? this.formOf(from) : null;
+    for (const it of this.items.values()) {
+      if (!it.shortcut || it.shortcut !== keys) continue;
+      if (it.el.closest('.wf-tsdisabled, .wf-hidden')) continue;
+      if (form && this.formOf(it) !== form) continue;
+      e.preventDefault();
+      this.closeMenus();
+      this.dispatch(it.id, 'click');
+      return true;
+    }
+    return false;
+  }
+
+  contextMenu(e) {
+    let it = this.itemFrom(e.target);
+    while (it && !it.ctxmenu) it = this.items.get(it.parentId);
+    if (!it) return;
+    const menu = this.items.get(it.ctxmenu);
+    if (!menu) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (this.dispatch(menu.id, 'opening', it.id) === 'handled') return;
+    this.showContext(menu, e.clientX, e.clientY);
+  }
+
+  showContext(menu, clientX, clientY) {
+    this.closeContext();
+    const r = this.root.getBoundingClientRect();
+    menu.el.classList.remove('wf-hidden');
+    menu.el.style.left = Math.max(0, clientX - r.left) + 'px';
+    menu.el.style.top = Math.max(0, clientY - r.top) + 'px';
+    menu.el.style.zIndex = 200000;
+    this.openContext = menu;
+  }
+
+  closeContext() {
+    if (!this.openContext) return;
+    this.openContext.el.classList.add('wf-hidden');
+    for (const o of this.openContext.el.querySelectorAll('.open')) o.classList.remove('open');
+    this.openContext = null;
+  }
+
+  // ------------------------------------------------------------------ DataGridView
+
+  gridMouse(item, e, dbl) {
+    if (item.editor && item.editor.input.contains(e.target)) return;
+    const cell = e.target.closest?.('td[data-r], th[data-r]');
+    if (!cell || !item.el.contains(cell)) return;
+    const r = Number(cell.dataset.r);
+    const c = Number(cell.dataset.c);
+    const content = e.target.closest('.wf-gcontent') ? 1 : 0;
+    const rect = cell.getBoundingClientRect();
+    const btn = e.button === 2 ? 2 : e.button === 1 ? 1 : 0;
+    const data = `${r},${c},${e.ctrlKey ? 1 : 0},${e.shiftKey ? 1 : 0},${btn},${Math.round(e.clientX - rect.left)},${Math.round(e.clientY - rect.top)},${content}`;
+    if (dbl) {
+      this.dispatch(item.id, 'celldbl', data);
+      return;
+    }
+    // Hücreler yeniden çizildiği için odağı tarayıcıya bırakmadan tabloya veriyoruz.
+    e.preventDefault();
+    if (document.activeElement !== item.el) item.el.focus({ preventScroll: true });
+    this.dispatch(item.id, 'cell', data);
+    if (btn === 0 && e.target.matches('input[type=checkbox]')) this.dispatch(item.id, 'check', `${r},${c}`);
+  }
+
+  gridKey(item, e) {
+    const ed = item.editor;
+    if (ed && e.target === ed.input) {
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        this.commitGridEditor(item);
+        if (!item.editor) {
+          item.el.focus({ preventScroll: true });
+          this.dispatch(item.id, 'gridkey', this.keyData(e));
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        item.editor = null;
+        ed.input.remove();
+        renderGrid(item, item.gridJson);
+        item.el.focus({ preventScroll: true });
+        this.dispatch(item.id, 'canceledit');
+      }
+      return;
+    }
+    const g = item.grid;
+    if (!g) return;
+    if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey && e.key !== ' ' && !g.noedit && !g.ro) {
+      const [r, c] = g.cur || [-1, -1];
+      if (r >= 0 && c >= 0 && g.cols[c]?.k !== 'check') {
+        e.preventDefault();
+        this.dispatch(item.id, 'beginedit', `${r},${c}\n${e.key}`);
+        return;
+      }
+    }
+    const res = this.dispatch(item.id, 'gridkey', this.keyData(e));
+    if (res === 'handled') e.preventDefault();
+    else {
+      const form = this.formOf(item);
+      if (form && e.key === 'Escape' && this.dispatch(form.id, 'cancel') === 'handled') e.preventDefault();
+    }
+  }
+
+  commitGridEditor(item) {
+    const ed = item.editor;
+    if (!ed) return;
+    item.editor = null;
+    ed.input.remove();
+    renderGrid(item, item.gridJson);
+    this.dispatch(item.id, 'commit', `${ed.r},${ed.c}\n${ed.input.value}`);
+  }
+
+  gridMethod(item, method, arg) {
+    switch (method) {
+      case 'edit': {
+        const nl = arg.indexOf('\n');
+        const [r, c, typed] = arg.substring(0, nl).split(',').map(Number);
+        if (item.editor) item.editor.input.remove();
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.spellcheck = false;
+        input.className = 'wf-geditor';
+        input.value = arg.substring(nl + 1);
+        input.addEventListener('blur', () => {
+          if (item.editor?.input !== input) return;
+          setTimeout(() => { if (item.editor?.input === input) this.commitGridEditor(item); }, 0);
+        });
+        item.editor = { r, c, typed: typed === 1, input, focusNext: true };
+        attachEditor(item);
+        return;
+      }
+      case 'closeeditor': {
+        const ed = item.editor;
+        if (!ed) return;
+        const hadFocus = document.activeElement === ed.input;
+        item.editor = null;
+        ed.input.remove();
+        renderGrid(item, item.gridJson);
+        if (hadFocus) item.el.focus({ preventScroll: true });
+        return;
+      }
+      case 'scrollto':
+        setTimeout(() => scrollToRow(item, Number(arg)), 0);
+        return;
+      case 'focus':
+        setTimeout(() => item.el.focus(), 0);
+        return;
+      default:
+    }
   }
 }

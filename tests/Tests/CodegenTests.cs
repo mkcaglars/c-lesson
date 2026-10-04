@@ -57,6 +57,12 @@ namespace Tests
             var num = (NumericUpDown)form.Controls.Find("numericUpDown1", true).Single();
             Assert.Equal(-10m, num.Minimum);
             Assert.Equal(2.5m, num.Value);
+            var grid = (DataGridView)form.Controls.Find("dataGridView1", true).Single();
+            Assert.Equal(3, grid.Columns.Count);
+            Assert.Equal("Öğrenci Adı", grid.Columns["colAd"].HeaderText);
+            Assert.IsType<DataGridViewCheckBoxColumn>(grid.Columns[1]);
+            Assert.Equal(DataGridViewSelectionMode.FullRowSelect, grid.SelectionMode);
+            Assert.Equal(0, grid.Rows.Count);
             var deep = form.Controls.Find("button2", true).Single();
             Assert.Equal("panel2", deep.Parent.Name);
             var panel2 = form.Controls.Find("panel2", true).Single();

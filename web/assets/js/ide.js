@@ -877,12 +877,28 @@ export class Ide {
         desk, this.runOutputBox);
       document.body.appendChild(this.overlay);
       this.desktop = new Desktop(desk, {
-        onOutput: (text) => this.runLog(text.replace(/\n$/, ''), ''),
+        onOutput: (text) => this.runWrite(text),
         onError: (info) => this.runtimeError(info),
         onEnded: (reason) => this.programEnded(reason),
       });
     }
     this.overlay.classList.remove('hidden');
+  }
+
+  /** Console.Write çıktısı: metin olduğu gibi eklenir (satır sonları programdan gelir). */
+  runWrite(text) {
+    this.hadOutput = true;
+    this.runOutputBox.classList.remove('collapsed');
+    for (const pre of [this.runOutput, this.outputPre]) {
+      const last = pre.lastChild;
+      if (last && last.dataset?.raw === '1') last.textContent += text;
+      else {
+        const span = h('span', {}, text);
+        span.dataset.raw = '1';
+        pre.appendChild(span);
+      }
+    }
+    this.runOutput.scrollTop = this.runOutput.scrollHeight;
   }
 
   runLog(text, cls) {

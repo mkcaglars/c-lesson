@@ -1,5 +1,5 @@
 // Özellikler penceresi (Properties / Events).
-import { PROPS, CONTROLS, FORM_INFO, COLOR_NAMES, SYSTEM_COLORS, EVENT_DESC, DEFAULT_FONT, colorToCss, codeName, propDefault, eventTypes } from './catalog.js';
+import { PROPS, CONTROLS, FORM_INFO, COLOR_NAMES, SYSTEM_COLORS, EVENT_DESC, DEFAULT_FONT, COLUMN_TYPES, colorToCss, codeName, propDefault, eventTypes } from './catalog.js';
 import { h, modal, toast } from './ui.js';
 import { isIdentifier } from './templates.js';
 import { FORM } from './designer.js';
@@ -255,6 +255,10 @@ export class PropertyGrid {
         input(`(Koleksiyon) ${(value || []).length} öğe`, () => {}, { readonly: true });
         more(() => this.itemsDialog(value || [], (v) => this.apply(t, prop, v)), 'Öğeleri düzenle');
         break;
+      case 'columns':
+        input(`(Koleksiyon) ${(value || []).length} sütun`, () => {}, { readonly: true });
+        more(() => this.columnsDialog(t, value || [], (v) => this.apply(t, prop, v)), 'Sütunları düzenle');
+        break;
       case 'controlref': {
         const buttons = this.designer.walk().filter((e) => e.control.type === (def.refType || 'Button')).map((e) => e.control.name);
         select(['', ...buttons], value || '', (v) => this.apply(t, prop, v || undefined), ['(yok)', ...buttons]);
@@ -312,6 +316,64 @@ export class PropertyGrid {
     ta.value = current;
     const r = await modal({ title: `${prop} — çok satırlı metin`, body: ta, buttons: [{ text: 'Vazgeç', value: null }, { text: 'Tamam', value: 'ok', primary: true }] });
     if (r === 'ok') this.apply(t, prop, ta.value.replace(/\r\n/g, '\n'));
+  }
+
+  /** DataGridView sütun düzenleyicisi (VS'deki "Sütunları Düzenle" penceresi). */
+  async columnsDialog(t, columns, done) {
+    const cols = columns.map((c) => ({ name: c.name, type: c.type || 'DataGridViewTextBoxColumn', props: { ...(c.props || {}) } }));
+    const reserved = this.designer.allNames();
+    for (const c of columns) reserved.delete(c.name);
+    const list = h('div', { class: 'col-list' });
+    const body = h('div', { class: 'col-editor' },
+      h('p', { class: 'muted', style: { marginTop: 0 } }, 'Name kodda kullanılan addır (ör. colAd); HeaderText başlıkta görünen yazıdır.'),
+      list);
+    const typeOptions = Object.entries(COLUMN_TYPES);
+    const render = () => {
+      list.innerHTML = '';
+      list.appendChild(h('div', { class: 'col-row col-head' },
+        h('span', {}, 'Name'), h('span', {}, 'HeaderText'), h('span', {}, 'Tür'), h('span', {}, 'Genişlik'), h('span', {}, 'Salt okunur'), h('span', {}, '')));
+      cols.forEach((c, i) => {
+        const name = h('input', { class: 'input', value: c.name, spellcheck: 'false' });
+        name.onchange = () => { c.name = name.value.trim(); };
+        const head = h('input', { class: 'input', value: c.props.HeaderText ?? '' });
+        head.onchange = () => { c.props.HeaderText = head.value; };
+        const type = h('select', { class: 'input' }, typeOptions.map(([k, v]) => h('option', { value: k, selected: k === c.type }, v)));
+        type.onchange = () => { c.type = type.value; };
+        const width = h('input', { class: 'input', type: 'number', min: '6', value: c.props.Width ?? 125 });
+        width.onchange = () => { c.props.Width = Number(width.value) || 125; };
+        const ro = h('input', { type: 'checkbox', checked: !!c.props.ReadOnly });
+        ro.onchange = () => { c.props.ReadOnly = ro.checked || undefined; };
+        const up = h('button', { class: 'btn btn-small', title: 'Yukarı', disabled: i === 0 }, '▲');
+        up.onclick = () => { cols.splice(i - 1, 0, cols.splice(i, 1)[0]); render(); };
+        const del = h('button', { class: 'btn btn-small', title: 'Sil' }, '✕');
+        del.onclick = () => { cols.splice(i, 1); render(); };
+        list.appendChild(h('div', { class: 'col-row' }, name, head, type, width, h('span', { class: 'col-center' }, ro), h('span', {}, up, del)));
+      });
+      const add = h('button', { class: 'btn' }, '+ Sütun ekle');
+      add.onclick = () => {
+        const taken = new Set([...reserved, ...cols.map((c) => c.name)]);
+        let n = 1;
+        while (taken.has('Column' + n)) n++;
+        cols.push({ name: 'Column' + n, type: 'DataGridViewTextBoxColumn', props: { HeaderText: 'Column' + n } });
+        render();
+        list.querySelectorAll('.col-row:not(.col-head) input.input')[(cols.length - 1) * 3]?.focus();
+      };
+      list.appendChild(add);
+    };
+    render();
+    for (;;) {
+      const r = await modal({ title: 'Sütunları Düzenle', body, width: 720, buttons: [{ text: 'Vazgeç', value: null }, { text: 'Tamam', value: 'ok', primary: true }] });
+      if (r !== 'ok') return;
+      const seen = new Set();
+      const bad = cols.find((c) => {
+        const bad1 = !isIdentifier(c.name) || reserved.has(c.name) || seen.has(c.name);
+        seen.add(c.name);
+        return bad1;
+      });
+      if (!bad) break;
+      toast(`Geçersiz ya da kullanılmış sütun adı: "${bad.name}"`, 'error');
+    }
+    done(cols.map((c) => ({ name: c.name, type: c.type, props: Object.fromEntries(Object.entries(c.props).filter(([, v]) => v !== undefined && v !== '')) })));
   }
 
   async itemsDialog(items, done) {

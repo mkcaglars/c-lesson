@@ -1,6 +1,8 @@
 // WinForms kontrollerinin HTML ile çizimi.
 // Bu modül hem çalışan programda (runner.js) hem de form tasarımcısında (designer.js) kullanılır.
 
+import { createGrid, renderGrid } from './grid.js';
+
 const ALIGN_V = { Top: 'flex-start', Middle: 'center', Bottom: 'flex-end' };
 const ALIGN_H = { Left: 'flex-start', Center: 'center', Right: 'flex-end' };
 
@@ -170,6 +172,79 @@ const creators = {
     el.innerHTML = '<input type="date">';
     return { el, input: el.querySelector('input'), format: 'Long' };
   },
+  // ---------------- Araç çubukları (ToolStrip ailesi) ----------------
+  ToolStrip() {
+    const el = div('wf-ctl wf-strip wf-toolstrip');
+    el.innerHTML = '<span class="wf-grip-dots"></span>';
+    return { el, client: el };
+  },
+  MenuStrip() {
+    const el = div('wf-ctl wf-strip wf-menustrip');
+    return { el, client: el };
+  },
+  StatusStrip() {
+    const el = div('wf-ctl wf-strip wf-statusstrip');
+    return { el, client: el };
+  },
+  ContextMenuStrip() {
+    const el = div('wf-ctxmenu wf-tsdrop');
+    return { el, client: el };
+  },
+  TSButton() {
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.tabIndex = -1;
+    el.className = 'wf-tsitem wf-tsbutton';
+    el.innerHTML = '<img alt="" draggable="false"><span class="wf-tstext"></span>';
+    return { el, textEl: el.querySelector('.wf-tstext'), img: el.querySelector('img') };
+  },
+  TSLabel() {
+    const el = document.createElement('span');
+    el.className = 'wf-tsitem wf-tslabel';
+    el.innerHTML = '<img alt="" draggable="false"><span class="wf-tstext"></span>';
+    return { el, textEl: el.querySelector('.wf-tstext'), img: el.querySelector('img') };
+  },
+  TSStatusLabel() {
+    const r = creators.TSLabel();
+    r.el.classList.add('wf-tsstatus');
+    return r;
+  },
+  TSSeparator() {
+    const el = document.createElement('span');
+    el.className = 'wf-tsitem wf-tssep';
+    return { el };
+  },
+  TSTextBox() {
+    const el = document.createElement('span');
+    el.className = 'wf-tsitem wf-tstextbox';
+    el.innerHTML = '<input type="text" spellcheck="false">';
+    return { el, input: el.querySelector('input') };
+  },
+  TSComboBox() {
+    const el = document.createElement('span');
+    el.className = 'wf-tsitem wf-tscombo';
+    el.innerHTML = '<select></select>';
+    return { el, select: el.querySelector('select'), items: [] };
+  },
+  TSProgressBar() {
+    const el = document.createElement('span');
+    el.className = 'wf-tsitem wf-tsprogress';
+    el.innerHTML = '<span class="wf-progress-bar"></span>';
+    return { el, bar: el.firstChild };
+  },
+  TSMenuItem() {
+    const el = div('wf-tsitem wf-tsmenu');
+    el.innerHTML = '<span class="wf-tsrow"><span class="wf-tscheck"></span><img alt="" draggable="false"><span class="wf-tstext"></span><span class="wf-tsshortcut"></span><span class="wf-tsarrow"></span></span><div class="wf-tsdrop"></div>';
+    return { el, textEl: el.querySelector('.wf-tstext'), img: el.querySelector('img'), client: el.querySelector('.wf-tsdrop'), shortcutEl: el.querySelector('.wf-tsshortcut') };
+  },
+  TSDropDownButton() {
+    const r = creators.TSMenuItem();
+    r.el.classList.add('wf-tsddbutton');
+    return r;
+  },
+  DataGridView() {
+    return createGrid();
+  },
   Control() {
     return { el: div('wf-ctl') };
   },
@@ -262,10 +337,84 @@ function parseList(value) {
   return value === '' || value == null ? [] : String(value).split(',').map(Number);
 }
 
+
+/** ToolStrip öğelerine özgü özellikler. İşlendiyse true döner. */
+function setToolStripProp(item, prop, value) {
+  const el = item.el;
+  switch (prop) {
+    case 'text':
+      if (item.input) { if (item.input.value !== value) item.input.value = value; }
+      else if (item.select) { /* seçim metni 'sel' ile */ }
+      else if (item.textEl) item.textEl.textContent = mnemonic(value);
+      el.classList.toggle('wf-tsempty', !value);
+      return true;
+    case 'enabled':
+      el.classList.toggle('wf-tsdisabled', value === '0');
+      if (item.input) item.input.disabled = value === '0';
+      if (item.select) item.select.disabled = value === '0';
+      return true;
+    case 'visible':
+      el.classList.toggle('wf-hidden', value === '0');
+      return true;
+    case 'image':
+      if (item.img) {
+        if (value) item.img.src = value; else item.img.removeAttribute('src');
+        el.classList.toggle('wf-tshasimg', !!value);
+      }
+      return true;
+    case 'displaystyle':
+      el.dataset.display = value;
+      return true;
+    case 'alignment':
+      el.classList.toggle('wf-tsright', value === 'Right');
+      return true;
+    case 'checked':
+      el.classList.toggle('wf-tschecked', value === '1');
+      return true;
+    case 'islink':
+      el.classList.toggle('wf-tslink', value === '1');
+      return true;
+    case 'spring':
+      el.classList.toggle('wf-tsspring', value === '1');
+      return true;
+    case 'shortcut':
+      item.shortcut = Number(value) || 0;
+      return true;
+    case 'shortcuttext':
+      if (item.shortcutEl) item.shortcutEl.textContent = value;
+      return true;
+    case 'items':
+      if (item.select) {
+        item.items = JSON.parse(value || '[]');
+        item.select.innerHTML = '';
+        item.items.forEach((t, i) => { const o = document.createElement('option'); o.value = i; o.textContent = t; item.select.appendChild(o); });
+        item.select.selectedIndex = item.sel ?? -1;
+      }
+      return true;
+    case 'sel':
+      if (item.select) { item.sel = Number(value); item.select.selectedIndex = item.sel; }
+      return true;
+    case 'tooltip':
+      el.title = value;
+      return true;
+    default:
+      return false;
+  }
+}
+
+/** Öğeleri koleksiyondaki sıraya göre dizer ("itemorder" özelliği). */
+export function orderChildren(container, ids, lookup) {
+  for (const id of ids) {
+    const child = lookup(Number(id));
+    if (child && child.el.parentNode === container) container.appendChild(child.el);
+  }
+}
+
 /** Bir özelliği çizime uygular. Form'a özgü pencere işlemleri runner/designer'da yapılır. */
 export function setProp(item, prop, value) {
   item.props[prop] = value;
   const el = item.el;
+  if (item.type.startsWith('TS') && setToolStripProp(item, prop, value)) return;
   switch (prop) {
     case 'bounds': {
       const [x, y, w, h] = value.split(',').map(Number);
@@ -282,6 +431,7 @@ export function setProp(item, prop, value) {
       el.style.top = y + 'px';
       el.style.width = w + 'px';
       el.style.height = h + 'px';
+      if (item.type === 'DataGridView' && item.gridJson) renderGrid(item, item.gridJson);
       return;
     }
     case 'text': setText(item, value); return;
@@ -444,6 +594,12 @@ export function setProp(item, prop, value) {
       el.classList.toggle('wf-marquee', style === 'Marquee');
       return;
     }
+    case 'grip':
+      el.classList.toggle('wf-nogrip', value === '0');
+      return;
+    case 'grid':
+      renderGrid(item, value);
+      return;
     case 'datetime': {
       const [format, iso, min, max] = value.split('|');
       const type = format === 'Time' ? 'time' : 'date';

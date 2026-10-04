@@ -82,7 +82,12 @@ namespace System.Windows.Forms
         public bool CausesValidation { get; set; } = true;
         public bool UseWaitCursor { get; set; }
         public bool AllowDrop { get; set; }
-        public virtual ContextMenuStrip ContextMenuStrip { get; set; }
+        ContextMenuStrip contextMenu;
+        public virtual ContextMenuStrip ContextMenuStrip
+        {
+            get => contextMenu;
+            set { contextMenu = value; Ui.Set(Id, "ctxmenu", value?.Id ?? 0); }
+        }
 
         public virtual string Text
         {
@@ -369,6 +374,18 @@ namespace System.Windows.Forms
 
         internal bool VisibleFlag => visible;
 
+        /// <summary>Form ilk kez gösterildiğinde (WinForms'ta tutamaç oluştuğunda) tüm alt kontroller için çağrılır.</summary>
+        internal virtual void OnFormShownInternal()
+        {
+            if (controls != null) foreach (Control c in new List<Control>(controls.Cast())) c.OnFormShownInternal();
+        }
+
+        internal void SetVisibleCoreInternal(bool value)
+        {
+            visible = value;
+            Ui.Set(Id, "visible", value);
+        }
+
         public bool Enabled
         {
             get => enabled && (parent == null || parent.Enabled);
@@ -408,6 +425,29 @@ namespace System.Windows.Forms
         public IAsyncResult BeginInvoke(Delegate method) { method.DynamicInvoke(); return null; }
         public IAsyncResult BeginInvoke(Delegate method, params object[] args) { method.DynamicInvoke(args); return null; }
         public IAsyncResult BeginInvoke(Action method) { method(); return null; }
+
+        // ---------------- Veri bağlama ----------------
+
+        ControlBindingsCollection dataBindings;
+        public ControlBindingsCollection DataBindings => dataBindings ??= new ControlBindingsCollection(this);
+        public virtual BindingContext BindingContext { get; set; } = new BindingContext();
+
+        /// <summary>Bağlı özelliğin değişikliklerini veri kaynağına aktaracak olayları dinler.</summary>
+        internal void HookBindingUpdates(Binding b)
+        {
+            var ev = GetType().GetEvent(b.PropertyName + "Changed");
+            if (ev != null && ev.EventHandlerType == typeof(EventHandler))
+                ev.AddEventHandler(this, new EventHandler((s, e) => b.ControlChanged(false)));
+            Leave += (s, e) => b.ControlChanged(true);
+            ((CurrencyManager)b.BindingManagerBase)?.Bindings.Add(b);
+        }
+
+        /// <summary>Bu kontrol ve alt kontrollerindeki bağlı değerleri veri kaynağına yazar (Validate).</summary>
+        internal void PushBindings()
+        {
+            if (dataBindings != null) foreach (var b in dataBindings.All) b.WriteValue();
+            if (controls != null) foreach (Control c in controls) c.PushBindings();
+        }
 
         // ---------------- Odak ----------------
 
@@ -780,6 +820,7 @@ namespace System.Windows.Forms
                 SendZ();
                 Owner.PerformLayout();
                 Owner.RaiseControlAdded(value);
+                if (Owner.FindForm() is Form form && form.ShownOnce) value.OnFormShownInternal();
             }
 
             public virtual void AddRange(Control[] controls)
@@ -873,9 +914,4 @@ namespace System.Windows.Forms
 
     public enum AutoSizeMode { GrowAndShrink = 0, GrowOnly = 1 }
 
-    public class ContextMenuStrip : Component
-    {
-        public ContextMenuStrip() { }
-        public ContextMenuStrip(IContainer container) { container?.Add(this); }
-    }
 }

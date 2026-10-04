@@ -113,6 +113,8 @@ namespace MiniWinForms
 
         internal static void Unregister(int id) => objects.Remove(id);
 
+        internal static object Find(int id) => objects.TryGetValue(id, out var o) ? o : null;
+
         internal static IEnumerable<object> AllObjects => new List<object>(objects.Values);
 
         static void Add(string op)

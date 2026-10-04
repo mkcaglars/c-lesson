@@ -39,8 +39,10 @@ namespace System.Windows.Forms
             set { activeControl = value; value?.Focus(); }
         }
         internal void SetActiveControlSilently(Control c) => activeControl = c;
-        public bool Validate() => true;
-        public bool ValidateChildren() => true;
+        public bool Validate() { PushBindings(); return true; }
+        public bool Validate(bool checkAutoValidate) => Validate();
+        public bool ValidateChildren() { PushBindings(); return true; }
+        public bool ValidateChildren(ValidationConstraints constraints) => ValidateChildren();
     }
 
     public class Form : ContainerControl, IWin32Window
@@ -54,6 +56,7 @@ namespace System.Windows.Forms
         bool maximizeBox = true, minimizeBox = true, controlBox = true, topMost, showInTaskbar = true, keyPreview, topLevel = true;
         double opacity = 1.0;
         bool loaded, shownOnce, closing, isModal;
+        internal bool ShownOnce => shownOnce;
         DialogResult dialogResult;
         TaskCompletionSource<DialogResult> dialogTcs;
         Form owner;
@@ -198,6 +201,7 @@ namespace System.Windows.Forms
             if (value && !shownOnce)
             {
                 shownOnce = true;
+                OnFormShownInternal();
                 OnShown(EventArgs.Empty);
             }
         }
@@ -376,6 +380,8 @@ namespace System.Windows.Forms
             return base.HandleUiEvent(evt, data);
         }
     }
+
+    [Flags] public enum ValidationConstraints { None = 0, Selectable = 1, Enabled = 2, Visible = 4, TabStop = 8, ImmediateChildren = 16 }
 
     public enum SizeGripStyle { Auto = 0, Show = 1, Hide = 2 }
 

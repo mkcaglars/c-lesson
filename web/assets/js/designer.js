@@ -71,7 +71,10 @@ export class FormDesigner {
 
   allNames() {
     const names = new Set([this.formName]);
-    for (const { control } of this.walk()) names.add(control.name);
+    for (const { control } of this.walk()) {
+      names.add(control.name);
+      for (const col of control.props?.Columns || []) names.add(col.name);
+    }
     for (const c of this.model.components || []) names.add(c.name);
     return names;
   }
@@ -299,6 +302,22 @@ export class FormDesigner {
       case 'Panel':
         if (!p.BorderStyle || p.BorderStyle === 'None') it.el.classList.add('d-outline');
         break;
+      case 'DataGridView': {
+        const cols = (p.Columns || []).map((c) => ({
+          h: c.props?.HeaderText ?? c.name, w: Number(c.props?.Width) || 125, fw: 100,
+          m: (c.props?.AutoSizeMode && c.props.AutoSizeMode !== 'NotSet' ? c.props.AutoSizeMode : p.AutoSizeColumnsMode) === 'Fill' ? 'fill' : '',
+          k: 'text', hid: c.props?.Visible === false ? 1 : 0,
+        }));
+        const grid = {
+          cols, rows: [], cur: [-1, -1],
+          rh: p.RowHeadersVisible === false ? 0 : (p.RowHeadersWidth ?? 41), ch: p.ColumnHeadersVisible === false ? 0 : 23,
+          bg: p.BackgroundColor ? colorToCss(p.BackgroundColor) : '#ababab', gc: p.GridColor ? colorToCss(p.GridColor) : '#a0a0a0',
+        };
+        setProp(it, 'grid', JSON.stringify(grid));
+        if (p.BorderStyle) setProp(it, 'borderstyle', p.BorderStyle);
+        it.el.tabIndex = -1;
+        break;
+      }
       default:
     }
     if (p.Visible === false) it.el.classList.add('wf-hidden-design');
@@ -546,6 +565,7 @@ export class FormDesigner {
     const reserved = new Set();
     const rename = (c) => {
       c.name = this.uniqueName(CONTROLS[c.type]?.prefix || 'control', reserved);
+      for (const col of c.props?.Columns || []) col.name = this.uniqueName(col.name.replace(/\d+$/, ''), reserved);
       if (c.controls) c.controls.forEach(rename);
     };
     for (const item of clipboard) {
