@@ -8,3 +8,4 @@ web/api/config.php
 data/
 *.sqlite
 build/
+yayin/
