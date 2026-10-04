@@ -41,6 +41,44 @@ namespace CLesson.Compiler
             consoleHooked = true;
             Console.SetOut(new BackendWriter());
             Console.SetError(new BackendWriter());
+            Console.SetIn(new PromptReader());
+        }
+
+        /// <summary>Console.ReadLine için kullanıcıdan giriş ister.</summary>
+        sealed class PromptReader : TextReader
+        {
+            string pending;
+            int pos;
+
+            public override string ReadLine()
+            {
+                Console.Out.Flush();
+                if (pending != null && pos < pending.Length)
+                {
+                    var rest = pending.Substring(pos).TrimEnd('\n');
+                    pending = null;
+                    return rest;
+                }
+                pending = null;
+                var r = Ui.Backend.InputBox("Programın girişi bekleniyor (Console.ReadLine):", "Konsol", "");
+                Guard.RestartClockPublic();
+                if (r != null) Ui.Backend.Output(r + "\n");
+                return r;
+            }
+
+            public override int Read()
+            {
+                if (pending == null || pos >= pending.Length)
+                {
+                    var line = ReadLine();
+                    if (line == null) return -1;
+                    pending = line + "\n";
+                    pos = 0;
+                }
+                return pending[pos++];
+            }
+
+            public override int Peek() => pending != null && pos < pending.Length ? pending[pos] : -1;
         }
 
         sealed class BackendWriter : TextWriter

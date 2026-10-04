@@ -1044,7 +1044,7 @@ namespace System.Windows.Forms
 
     // ======================= Resim =======================
 
-    public class PictureBox : Control
+    public class PictureBox : Control, ISupportInitialize
     {
         Image image;
         string imageLocation = "";
@@ -1073,6 +1073,8 @@ namespace System.Windows.Forms
         public BorderStyle BorderStyle { get => borderStyle; set { borderStyle = value; Ui.Set(Id, "borderstyle", value.ToString()); } }
         public override bool CanFocus => false;
 
+        public void BeginInit() { }
+        public void EndInit() { }
         public void Load() => ImageLocation = imageLocation;
         public void Load(string url) => ImageLocation = url;
         public void LoadAsync() => Load();
@@ -1081,7 +1083,7 @@ namespace System.Windows.Forms
 
     // ======================= Sayısal / Tarih =======================
 
-    public class NumericUpDown : Control
+    public class NumericUpDown : Control, ISupportInitialize
     {
         static readonly object EvValueChanged = new object();
         decimal value, minimum, maximum = 100, increment = 1;
@@ -1122,6 +1124,8 @@ namespace System.Windows.Forms
 
         void SendRange() => Ui.Set(Id, "range", string.Join(",", minimum.ToString(CultureInfo.InvariantCulture), maximum.ToString(CultureInfo.InvariantCulture), increment.ToString(CultureInfo.InvariantCulture), decimalPlaces.ToString(CultureInfo.InvariantCulture)));
 
+        public void BeginInit() { }
+        public void EndInit() { }
         public void UpButton() => Value = Math.Min(maximum, value + increment);
         public void DownButton() => Value = Math.Max(minimum, value - increment);
         public void Select(int start, int length) { }
@@ -1185,7 +1189,7 @@ namespace System.Windows.Forms
         public void Increment(int amount) { value = Math.Max(minimum, Math.Min(maximum, value + amount)); SendState(); }
     }
 
-    public class TrackBar : Control
+    public class TrackBar : Control, ISupportInitialize
     {
         static readonly object EvValueChanged = new object(), EvScroll = new object();
         int value, minimum, maximum = 10, tickFrequency = 1, smallChange = 1, largeChange = 5;
@@ -1224,6 +1228,8 @@ namespace System.Windows.Forms
             Ui.Set(Id, "value", value);
         }
 
+        public void BeginInit() { }
+        public void EndInit() { }
         public void SetRange(int min, int max) { Minimum = min; Maximum = max; }
 
         public event EventHandler ValueChanged { add => Events.AddHandler(EvValueChanged, value); remove => Events.RemoveHandler(EvValueChanged, value); }

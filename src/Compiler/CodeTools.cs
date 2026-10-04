@@ -76,6 +76,21 @@ namespace CLesson.Compiler
             return code.Substring(0, span.Start) + newName + code.Substring(span.End);
         }
 
+        /// <summary>Kontrol yeniden adlandırılınca koddaki kullanımlarını (this.eskiAd, eskiAd.Text ...) günceller.</summary>
+        public static string RenameIdentifier(string code, string oldName, string newName)
+        {
+            var root = CSharpSyntaxTree.ParseText(code ?? "").GetRoot();
+            var spans = root.DescendantNodes().OfType<IdentifierNameSyntax>()
+                .Where(n => n.Identifier.Text == oldName)
+                .Where(n => n.Parent is not MemberAccessExpressionSyntax ma || ma.Expression == n || ma.Expression is ThisExpressionSyntax)
+                .Select(n => n.Identifier.Span)
+                .OrderByDescending(s => s.Start)
+                .ToList();
+            var sb = new StringBuilder(code);
+            foreach (var span in spans) sb.Remove(span.Start, span.Length).Insert(span.Start, newName);
+            return sb.ToString();
+        }
+
         static string Result(string code, int line) => JsonSerializer.Serialize(new { code, line });
 
         /// <summary>Projeyi Visual Studio'da açılabilecek bir .zip dosyasına dönüştürür.</summary>

@@ -160,7 +160,8 @@ namespace System.Windows.Forms
             }
             if (resized)
             {
-                if (controls != null)
+                // Tasarımcı kodu (InitializeComponent) düzen askıdayken çalışır; o sırada anchor uygulanmaz.
+                if (controls != null && layoutSuspend == 0)
                 {
                     foreach (Control c in controls) c.ApplyAnchor(dw, dh);
                 }

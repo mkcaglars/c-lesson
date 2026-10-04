@@ -10,6 +10,8 @@
     <RootNamespace>CLesson.Engine</RootNamespace>
     <!-- Öğrenci kodu framework'ün herhangi bir yerini kullanabileceği için budama kapalı. -->
     <PublishTrimmed>false</PublishTrimmed>
+    <!-- Hata mesajlarının (FormatException vb.) metinleri gerçek mesaj olarak kalsın. -->
+    <UseSystemResourceKeys>false</UseSystemResourceKeys>
     <InvariantGlobalization>false</InvariantGlobalization>
     <WasmIcuDataFileName>icudt_no_CJK.dat</WasmIcuDataFileName>
     <SatelliteResourceLanguages>tr</SatelliteResourceLanguages>

@@ -407,6 +407,8 @@ namespace MiniWinForms
 
         internal static void EndTurn() => inTurn = false;
 
+        public static void RestartClockPublic() => RestartClock();
+
         /// <summary>Mesaj kutusu gibi kullanıcıyı bekleyen işlemlerden sonra süre sayacını sıfırlar.</summary>
         internal static void RestartClock()
         {

@@ -81,6 +81,9 @@ namespace CLesson.Engine
         public static string RenameMethod(string code, string oldName, string newName) => CodeTools.RenameMethod(code, oldName, newName);
 
         [JSExport]
+        public static string RenameIdentifier(string code, string oldName, string newName) => CodeTools.RenameIdentifier(code, oldName, newName);
+
+        [JSExport]
         public static byte[] ExportZip(string projectJson) => CodeTools.ExportZip(ProjectInput.Parse(projectJson));
 
         /// <summary>İlk derlemeyi hızlandırmak için derleyiciyi önceden ısıtır.</summary>
