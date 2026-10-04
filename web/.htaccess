@@ -1,6 +1,6 @@
 # C# WinForms Ders Ortamı — Apache / Hostinger (LiteSpeed) ayarları
 
-DirectoryIndex index.html
+DirectoryIndex index.html index.php
 
 # WebAssembly ve .NET dosya türleri
 AddType application/wasm .wasm

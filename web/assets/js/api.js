@@ -9,7 +9,7 @@ export class ApiError extends Error {
 }
 
 async function request(method, route, body, opts = {}) {
-  const url = `api/?r=${encodeURI(route)}${opts.query ? '&' + new URLSearchParams(opts.query) : ''}`;
+  const url = `api/index.php?r=${encodeURI(route)}${opts.query ? '&' + new URLSearchParams(opts.query) : ''}`;
   const init = {
     method,
     credentials: 'same-origin',
