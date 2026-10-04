@@ -8,7 +8,9 @@ AddType application/octet-stream .dat .blat .dll .pdb
 AddType application/javascript .js .mjs
 AddType application/json .json
 
-# Önceden sıkıştırılmış (.br / .gz) dosyaları tarayıcı destekliyorsa onları gönder
+# Önceden sıkıştırılmış (.br / .gz) dosyaları tarayıcı destekliyorsa onları gönder.
+# (Yalnızca başlık modülü de varsa; yoksa dosyalar sıkıştırılmadan gönderilir, yine çalışır.)
+<IfModule mod_headers.c>
 <IfModule mod_rewrite.c>
   RewriteEngine On
 
@@ -30,6 +32,7 @@ AddType application/json .json
   RewriteRule \.js\.gz$ - [T=application/javascript,E=no-gzip:1]
   RewriteRule \.dat\.gz$ - [T=application/octet-stream,E=no-gzip:1]
   RewriteRule \.json\.gz$ - [T=application/json,E=no-gzip:1]
+</IfModule>
 </IfModule>
 
 <IfModule mod_headers.c>

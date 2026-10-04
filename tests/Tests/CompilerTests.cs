@@ -187,6 +187,14 @@ namespace Tests
         }
 
         [Fact]
+        public void TimerIsNotAmbiguous()
+        {
+            Backend();
+            var r = new ProjectCompiler().Build(Project("Timer t = new Timer(); t.Interval = 10;"));
+            Assert.True(r.Success, string.Join("\n", r.Diagnostics.Select(d => d.Message)));
+        }
+
+        [Fact]
         public void CompletionListsMembers()
         {
             var compiler = new ProjectCompiler();

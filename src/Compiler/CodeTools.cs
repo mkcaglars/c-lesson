@@ -112,6 +112,12 @@ namespace CLesson.Compiler
             csproj.AppendLine("    <RootNamespace>" + project.Namespace + "</RootNamespace>");
             csproj.AppendLine("    <AssemblyName>" + project.Namespace + "</AssemblyName>");
             csproj.AppendLine("  </PropertyGroup>");
+            csproj.AppendLine();
+            csproj.AppendLine("  <!-- Web ortamıyla aynı örtük using listesi (Timer adı çakışmasın diye System.Threading yok) -->");
+            csproj.AppendLine("  <ItemGroup>");
+            csproj.AppendLine("    <Using Remove=\"System.Threading\" />");
+            csproj.AppendLine("    <Using Remove=\"System.Net.Http\" />");
+            csproj.AppendLine("  </ItemGroup>");
             if (formFiles.Count > 0)
             {
                 csproj.AppendLine();
