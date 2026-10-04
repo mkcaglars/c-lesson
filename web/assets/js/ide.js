@@ -209,6 +209,9 @@ export class Ide {
     const bar = this.statusProgress.firstChild;
     const onProgress = (e) => { bar.style.width = Math.round(e.detail * 100) + '%'; };
     document.addEventListener('engine-progress', onProgress);
+    const slow = setTimeout(() => {
+      if (!this.engineObj) this.statusText.textContent = 'Derleyici hâlâ yükleniyor… Uzun sürerse sayfayı Ctrl+F5 ile yenileyin.';
+    }, 45000);
     try {
       this.engineObj = await this.ctx.enginePromise;
       this.statusProgress.classList.add('hidden');
@@ -223,6 +226,7 @@ export class Ide {
       this.statusText.textContent = 'Derleyici yüklenemedi: ' + (e?.message || e);
       this.engineReady = false;
     } finally {
+      clearTimeout(slow);
       document.removeEventListener('engine-progress', onProgress);
     }
   }

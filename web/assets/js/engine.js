@@ -19,6 +19,27 @@ function call(name, ...args) {
   return fn.apply(host, args);
 }
 
+// Büyük motor dosyaları sunucuda .gz olarak da durur. Tarayıcı bunları kendisi açar (DecompressionStream);
+// böylece sunucunun sıkıştırma ayarlarına (.htaccess, LiteSpeed) bağımlı kalınmaz ve indirme ~3 kat küçülür.
+const GZIP_TYPES = new Set(['assembly', 'pdb', 'globalization', 'dotnetwasm']);
+const CONTENT_TYPES = { dotnetwasm: 'application/wasm' };
+
+function gzipLoader(type, name, defaultUri) {
+  if (!GZIP_TYPES.has(type) || typeof DecompressionStream === 'undefined') return undefined;
+  return (async () => {
+    try {
+      const res = await fetch(defaultUri + '.gz', { cache: 'no-cache' });
+      if (!res.ok || !res.body) throw new Error(String(res.status));
+      const stream = res.body.pipeThrough(new DecompressionStream('gzip'));
+      const bytes = await new Response(stream).arrayBuffer();
+      return new Response(bytes, { headers: { 'content-type': CONTENT_TYPES[type] || 'application/octet-stream' } });
+    } catch {
+      // .gz yoksa ya da açılamazsa normal dosyayı indir.
+      return fetch(defaultUri, { cache: 'no-cache' });
+    }
+  })();
+}
+
 /**
  * Motoru yükler. İlk çağrıda indirme yapılır (~11 MB, sonra tarayıcı önbelleğinden gelir).
  * @param {(loaded:number,total:number)=>void} onProgress
@@ -30,6 +51,7 @@ export function loadEngine(onProgress) {
     const { dotnet } = await import(new URL('dotnet.js', base).href);
     const runtime = await dotnet
       .withApplicationCulture('tr-TR')
+      .withResourceLoader(gzipLoader)
       .withConfig({ loadAllSatelliteResources: true })
       .withModuleConfig({
         onDownloadResourceProgress: (loaded, total) => onProgress?.(loaded, total),

@@ -8,47 +8,16 @@ AddType application/octet-stream .dat .blat .dll .pdb
 AddType application/javascript .js .mjs
 AddType application/json .json
 
-# Önceden sıkıştırılmış (.br / .gz) dosyaları tarayıcı destekliyorsa onları gönder.
-# (Yalnızca başlık modülü de varsa; yoksa dosyalar sıkıştırılmadan gönderilir, yine çalışır.)
-<IfModule mod_headers.c>
-<IfModule mod_rewrite.c>
-  RewriteEngine On
-
-  RewriteCond %{HTTP:Accept-Encoding} br
-  RewriteCond %{REQUEST_URI} ^(.*/_framework/.*)$
-  RewriteCond %{REQUEST_FILENAME}.br -f
-  RewriteRule ^(.*)$ $1.br [L]
-
-  RewriteCond %{HTTP:Accept-Encoding} gzip
-  RewriteCond %{REQUEST_URI} ^(.*/_framework/.*)$
-  RewriteCond %{REQUEST_FILENAME}.gz -f
-  RewriteRule ^(.*)$ $1.gz [L]
-
-  RewriteRule \.wasm\.br$ - [T=application/wasm,E=no-gzip:1]
-  RewriteRule \.js\.br$ - [T=application/javascript,E=no-gzip:1]
-  RewriteRule \.dat\.br$ - [T=application/octet-stream,E=no-gzip:1]
-  RewriteRule \.json\.br$ - [T=application/json,E=no-gzip:1]
-  RewriteRule \.wasm\.gz$ - [T=application/wasm,E=no-gzip:1]
-  RewriteRule \.js\.gz$ - [T=application/javascript,E=no-gzip:1]
-  RewriteRule \.dat\.gz$ - [T=application/octet-stream,E=no-gzip:1]
-  RewriteRule \.json\.gz$ - [T=application/json,E=no-gzip:1]
-</IfModule>
+# Motor dosyaları (.wasm/.dll) tarayıcıda .gz sürümlerinden açılır (engine.js); burada ek ayar gerekmez.
+# .gz dosyaları sunucu tarafından tekrar sıkıştırılmasın / çözülmesin:
+AddType application/gzip .gz
+<IfModule mod_mime.c>
+  RemoveEncoding .gz
 </IfModule>
 
 <IfModule mod_headers.c>
-  Header append Vary Accept-Encoding
-  <FilesMatch "\.br$">
-    Header set Content-Encoding br
-  </FilesMatch>
-  <FilesMatch "\.gz$">
-    Header set Content-Encoding gzip
-  </FilesMatch>
-
-  # Motor dosyaları sürümle birlikte değişir; kısa önbellek + doğrulama
-  <FilesMatch "\.(wasm|dat|br|gz)$">
-    Header set Cache-Control "public, max-age=604800"
-  </FilesMatch>
-  <FilesMatch "\.(html|php)$">
+  # Her güncellemeden sonra tarayıcılar yeni dosyaları alsın (değişmeyenler 304 ile hızlı gelir).
+  <FilesMatch "\.(html|php|js|json|wasm|dat|gz|css)$">
     Header set Cache-Control "no-cache"
   </FilesMatch>
   Header always set X-Content-Type-Options "nosniff"

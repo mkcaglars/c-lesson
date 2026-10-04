@@ -14,6 +14,8 @@ dotnet publish src/Engine/Engine.csproj -c Release -o build/engine --nologo -v q
 echo ">> Web dosyaları kopyalanıyor..."
 cp -r web/. "$OUT/"
 cp -r build/engine/wwwroot/_framework "$OUT/_framework"
+# Tarayıcı .gz dosyalarını kendisi açar; .br dosyalarına gerek yok.
+find "$OUT/_framework" -name "*.br" -delete
 
 echo ">> Monaco editör kopyalanıyor..."
 if [ ! -d node_modules/monaco-editor ]; then npm install --no-audit --no-fund; fi
