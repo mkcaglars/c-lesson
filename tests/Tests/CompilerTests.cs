@@ -231,6 +231,10 @@ namespace Tests
             var names = zip.Entries.Select(e => e.FullName).ToList();
             Assert.Contains("Hesap Makinesi/HesapMakinesi.csproj", names);
             Assert.Contains("Hesap Makinesi/Form1.Designer.cs", names);
+            Assert.Contains("Hesap Makinesi/HesapMakinesi.slnx", names);
+            Assert.Contains("Hesap Makinesi/HesapMakinesi.sln", names);
+            using var r = new StreamReader(zip.GetEntry("Hesap Makinesi/HesapMakinesi.slnx").Open());
+            Assert.Contains("<Project Path=\"HesapMakinesi.csproj\" />", r.ReadToEnd());
         }
     }
 

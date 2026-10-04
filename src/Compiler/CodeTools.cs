@@ -142,7 +142,39 @@ namespace CLesson.Compiler
                     using var w = new StreamWriter(entry.Open(), new UTF8Encoding(true));
                     w.Write((content ?? "").Replace("\r\n", "\n").Replace("\n", "\r\n"));
                 }
-                Add(project.Namespace + ".csproj", csproj.ToString());
+                string csprojName = project.Namespace + ".csproj";
+                Add(csprojName, csproj.ToString());
+
+                // Çözüm dosyaları: .slnx (VS 2022 17.13+ / VS 2026) ve eski VS sürümleri için .sln
+                Add(project.Namespace + ".slnx",
+                    "<Solution>\n  <Project Path=\"" + csprojName + "\" />\n</Solution>\n");
+                string projGuid = StableGuid("proje:" + project.Namespace);
+                string slnGuid = StableGuid("cozum:" + project.Namespace);
+                Add(project.Namespace + ".sln",
+                    "\nMicrosoft Visual Studio Solution File, Format Version 12.00\n" +
+                    "# Visual Studio Version 17\n" +
+                    "VisualStudioVersion = 17.0.31903.59\n" +
+                    "MinimumVisualStudioVersion = 10.0.40219.1\n" +
+                    "Project(\"{9A19103F-16F7-4668-BE54-9A1E7A4F7556}\") = \"" + project.Namespace + "\", \"" + csprojName + "\", \"{" + projGuid + "}\"\n" +
+                    "EndProject\n" +
+                    "Global\n" +
+                    "\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n" +
+                    "\t\tDebug|Any CPU = Debug|Any CPU\n" +
+                    "\t\tRelease|Any CPU = Release|Any CPU\n" +
+                    "\tEndGlobalSection\n" +
+                    "\tGlobalSection(ProjectConfigurationPlatforms) = postSolution\n" +
+                    "\t\t{" + projGuid + "}.Debug|Any CPU.ActiveCfg = Debug|Any CPU\n" +
+                    "\t\t{" + projGuid + "}.Debug|Any CPU.Build.0 = Debug|Any CPU\n" +
+                    "\t\t{" + projGuid + "}.Release|Any CPU.ActiveCfg = Release|Any CPU\n" +
+                    "\t\t{" + projGuid + "}.Release|Any CPU.Build.0 = Release|Any CPU\n" +
+                    "\tEndGlobalSection\n" +
+                    "\tGlobalSection(SolutionProperties) = preSolution\n" +
+                    "\t\tHideSolutionNode = FALSE\n" +
+                    "\tEndGlobalSection\n" +
+                    "\tGlobalSection(ExtensibilityGlobals) = postSolution\n" +
+                    "\t\tSolutionGuid = {" + slnGuid + "}\n" +
+                    "\tEndGlobalSection\n" +
+                    "EndGlobal\n");
                 foreach (var f in project.Files)
                 {
                     if (f.Name == ProjectCompiler.HiddenFileName) continue;
@@ -150,10 +182,18 @@ namespace CLesson.Compiler
                 }
                 Add("BENIOKU.txt",
                     "Bu proje C# WinForms Ders Ortamından indirildi.\r\n\r\n" +
-                    "Açmak için: Visual Studio 2022 (veya daha yeni) ile " + project.Namespace + ".csproj dosyasını açın.\r\n" +
+                    "Açmak için: " + project.Namespace + ".slnx dosyasına çift tıklayın (Visual Studio 2022 17.13+ veya VS 2026).\r\n" +
+                    "Daha eski Visual Studio 2022 sürümlerinde " + project.Namespace + ".sln dosyasını açın.\r\n" +
                     "Gerekli: .NET 8 SDK ve Visual Studio'da \".NET masaüstü geliştirme\" iş yükü.\r\n");
             }
             return ms.ToArray();
+        }
+
+        /// <summary>Aynı proje için her indirmede aynı GUID (VS çözüm dosyası için).</summary>
+        static string StableGuid(string text)
+        {
+            var hash = System.Security.Cryptography.MD5.HashData(Encoding.UTF8.GetBytes(text));
+            return new Guid(hash).ToString().ToUpperInvariant();
         }
 
         static string SafeFileName(string name)
