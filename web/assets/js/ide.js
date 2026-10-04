@@ -699,7 +699,7 @@ export class Ide {
     try {
       const engine = await this.engine();
       const bytes = engine.ExportZip(this.projectJson());
-      download(`${this.name.replace(/[\\/:*?"<>|]/g, '_')}.zip`, bytes, 'application/zip');
+      download(`${asciiFileName(this.name)}.zip`, bytes, 'application/zip');
     } catch (e) {
       toast('ZIP oluşturulamadı: ' + e.message, 'error');
     }
@@ -1009,6 +1009,15 @@ export function turkishMessage(type, message) {
   // Mesaj zaten Türkçeyse (kütüphanemizin mesajları) olduğu gibi bırak.
   if (!tr || /[çğıöşüÇĞİÖŞÜ]/.test(msg)) return msg;
   return tr;
+}
+
+/** İndirme adı: bazı tarayıcılar Türkçe karakterli adları "download" yapar. */
+function asciiFileName(name) {
+  const map = { ç: 'c', Ç: 'C', ğ: 'g', Ğ: 'G', ı: 'i', İ: 'I', ö: 'o', Ö: 'O', ş: 's', Ş: 'S', ü: 'u', Ü: 'U' };
+  const s = String(name || 'Proje').replace(/[çÇğĞıİöÖşŞüÜ]/g, (c) => map[c])
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9 ._-]+/g, '_').trim();
+  return s || 'Proje';
 }
 
 /** Sık görülen hataları öğrencinin anlayacağı dille açıklar. */

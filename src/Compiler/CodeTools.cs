@@ -192,8 +192,17 @@ namespace CLesson.Compiler
         /// <summary>Aynı proje için her indirmede aynı GUID (VS çözüm dosyası için).</summary>
         static string StableGuid(string text)
         {
-            var hash = System.Security.Cryptography.MD5.HashData(Encoding.UTF8.GetBytes(text));
-            return new Guid(hash).ToString().ToUpperInvariant();
+            // Tarayıcıda (WebAssembly) MD5 yok; basit FNV-1a özetinden 16 bayt üretilir.
+            var bytes = new byte[16];
+            ulong h1 = 14695981039346656037UL, h2 = 1099511628211UL ^ 0x9E3779B97F4A7C15UL;
+            foreach (byte b in Encoding.UTF8.GetBytes(text))
+            {
+                h1 = (h1 ^ b) * 1099511628211UL;
+                h2 = (h2 ^ b) * 1099511628211UL + 0x632BE59BD9B4E019UL;
+            }
+            BitConverter.GetBytes(h1).CopyTo(bytes, 0);
+            BitConverter.GetBytes(h2).CopyTo(bytes, 8);
+            return new Guid(bytes).ToString().ToUpperInvariant();
         }
 
         static string SafeFileName(string name)
