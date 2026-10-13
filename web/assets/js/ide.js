@@ -9,6 +9,7 @@ import { generateDesigner } from './codegen.js';
 import { addForm, classCs, isIdentifier } from './templates.js';
 import { setHost } from './engine.js';
 import { Desktop } from './runner.js';
+import { distributeDialog } from './teacher.js';
 import { DataEditor } from './dataeditor.js';
 import { generateDataSet, designerFileName, databaseXml, databaseSql, dataFileName, parseDatabaseXml } from './datasetgen.js';
 
@@ -153,6 +154,7 @@ export class Ide {
       h('button', { class: 'btn btn-ghost', title: 'Visual Studio projesi olarak indir', onclick: () => this.exportZip() }, '⬇ ZIP indir'),
       h('div', { class: 'spacer' }),
       this.readonly ? h('button', { class: 'btn', onclick: () => this.copyToMine() }, 'Kopyasını al') : null,
+      !this.readonly && u.role === 'ogretmen' ? h('button', { class: 'btn', title: 'Bu projeyi bir sınıftaki öğrencilerin her birine kopyala', onclick: () => this.distribute() }, '\u{1F4E4} Sınıfa gönder') : null,
       h('span', { class: 'user-chip' }, h('span', { class: 'user-name' }, u.name)),
       h('a', { class: 'btn', href: this.readonly && u.role === 'ogretmen' ? `#/ogretmen/ogrenci/${this.project.owner.id}` : '#/' }, this.readonly ? 'Geri' : 'Projelerim'));
 
@@ -789,6 +791,15 @@ export class Ide {
     } catch (e) {
       toast(e.message, 'error');
     }
+  }
+
+  /** Öğretmen: önce kaydeder, sonra sınıfa gönderir (öğrenciler son kaydedilen hali alır). */
+  async distribute() {
+    if (!(await this.save({ force: false }))) {
+      toast('Proje kaydedilemedi; göndermeden önce kaydın tamamlanmasını bekleyin.', 'error');
+      return;
+    }
+    await distributeDialog({ id: this.id, name: this.name });
   }
 
   async editNote() {

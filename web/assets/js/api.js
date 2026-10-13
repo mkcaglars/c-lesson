@@ -41,6 +41,7 @@ export const api = {
   saveProject: (id, data, version, opts = {}) => request('PUT', `projects/${id}`, { data, version, force: !!opts.force, name: opts.name }, { keepalive: opts.keepalive }),
   renameProject: (id, name) => request('POST', `projects/${id}/rename`, { name }),
   copyProject: (id, name) => request('POST', `projects/${id}/copy`, name ? { name } : {}),
+  distributeProject: (id, opts) => request('POST', `projects/${id}/distribute`, opts),
   deleteProject: (id) => request('DELETE', `projects/${id}`),
   setNote: (id, note) => request('POST', `projects/${id}/note`, { note }),
   students: (sinif) => request('GET', 'teacher/students', undefined, { query: sinif ? { sinif } : null }),

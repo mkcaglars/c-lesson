@@ -2,6 +2,7 @@
 import { api, formatDate } from './api.js';
 import { h, modal, toast, confirmBox, promptBox } from './ui.js';
 import { TEMPLATES, toNamespace } from './templates.js';
+import { distributeDialog } from './teacher.js';
 
 export function topBar(ctx, active) {
   const u = ctx.user;
@@ -79,6 +80,7 @@ export class ProjectsView {
         h('button', { class: 'btn btn-primary btn-sm', onclick: open }, 'Aç'),
         h('button', { class: 'btn btn-sm', title: 'Yeniden adlandır', onclick: () => this.rename(p) }, 'Adlandır'),
         h('button', { class: 'btn btn-sm', title: 'Kopyasını oluştur', onclick: () => this.copy(p) }, 'Kopyala'),
+        this.ctx.user.role === 'ogretmen' ? h('button', { class: 'btn btn-sm', title: 'Seçtiğiniz sınıftaki öğrencilerin her birine kopyala', onclick: () => distributeDialog(p) }, 'Sınıfa gönder') : null,
         h('button', { class: 'btn btn-sm btn-danger-ghost', title: 'Sil', onclick: () => this.remove(p) }, 'Sil')));
   }
 

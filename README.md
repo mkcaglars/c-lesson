@@ -23,6 +23,7 @@ Derslerde kullanmak için web üzerinde çalışan bir **C# Windows Forms** geli
 - Sınıf ve öğrenci listesi, son giriş ve son değişiklik tarihleri
 - Tüm projeleri açma, çalıştırma ve test etme (salt okunur, öğrencinin projesi bozulmaz)
 - Öğrenciye proje notu yazma; "Kopyasını al" ile kendi alanına kopyalama
+- **Sınıfa gönder:** hazırladığı projeyi seçtiği sınıftaki öğrencilerin (hepsine ya da seçtiklerine) not ile birlikte kopyalama; aynı adlı projesi olan öğrenci atlanır
 
 **Desteklenen kontroller:** Form, Button, Label, LinkLabel, TextBox, MaskedTextBox, RichTextBox, CheckBox, RadioButton, ComboBox, ListBox, CheckedListBox, GroupBox, Panel, TabControl, PictureBox, NumericUpDown, DateTimePicker, ProgressBar, TrackBar, DataGridView, MenuStrip, ToolStrip, StatusStrip, ContextMenuStrip, BindingNavigator, Timer, ToolTip, ErrorProvider, BindingSource, OpenFileDialog, SaveFileDialog, MessageBox, `Interaction.InputBox`.
 

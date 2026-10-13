@@ -192,6 +192,48 @@ try {
                     ->execute([$u['id'], $name, $p['data'], $now, $now]);
                 out(['id' => (int)$pdo->lastInsertId(), 'name' => $name], 201);
             }
+            if ($action === 'distribute') {
+                // Öğretmen: projeyi seçilen sınıftaki öğrencilerin her birine kopyalar.
+                require_teacher($u);
+                $p = load_project($id, $u, false);
+                $b = body();
+                $sinif = trim((string)($b['sinif'] ?? ''));
+                if ($sinif === '') fail('Sınıf seçin.');
+                $name = clean_name($b['name'] ?? $p['name']);
+                $note = mb_substr(trim((string)($b['note'] ?? '')), 0, 4000);
+                $skipExisting = !array_key_exists('skipExisting', $b) || !empty($b['skipExisting']);
+                $only = isset($b['students']) && is_array($b['students']) ? array_map('intval', $b['students']) : null;
+                $st = $pdo->prepare("SELECT id, name FROM users WHERE sinif = ? AND role = 'ogrenci' ORDER BY name");
+                $st->execute([$sinif]);
+                $students = array_filter($st->fetchAll(), fn($s) => $only === null || in_array((int)$s['id'], $only, true));
+                if (!$students) fail('Bu sınıfta (henüz giriş yapmış) öğrenci yok.');
+                $max = (int)(app_config()['max_projects_per_user'] ?? 200);
+                $exists = $pdo->prepare('SELECT COUNT(*) FROM projects WHERE user_id = ? AND name = ?');
+                $count = $pdo->prepare('SELECT COUNT(*) FROM projects WHERE user_id = ?');
+                $ins = $pdo->prepare('INSERT INTO projects (user_id, name, data, version, note, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?)');
+                $now = now_str();
+                $copied = [];
+                $skipped = [];
+                $pdo->beginTransaction();
+                try {
+                    foreach ($students as $s) {
+                        $sid = (int)$s['id'];
+                        if ($skipExisting) {
+                            $exists->execute([$sid, $name]);
+                            if ((int)$exists->fetchColumn() > 0) { $skipped[] = ['name' => $s['name'], 'reason' => 'aynı adlı proje var']; continue; }
+                        }
+                        $count->execute([$sid]);
+                        if ((int)$count->fetchColumn() >= $max) { $skipped[] = ['name' => $s['name'], 'reason' => 'proje sınırı dolu']; continue; }
+                        $ins->execute([$sid, $name, $p['data'], $note, $now, $now]);
+                        $copied[] = $s['name'];
+                    }
+                    $pdo->commit();
+                } catch (Throwable $e) {
+                    $pdo->rollBack();
+                    throw $e;
+                }
+                out(['copied' => $copied, 'skipped' => $skipped]);
+            }
             if ($action === 'note') {
                 require_teacher($u);
                 load_project($id, $u, false);

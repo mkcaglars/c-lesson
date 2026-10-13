@@ -1,6 +1,6 @@
 // Öğretmen paneli: sınıflar, öğrenciler ve projeleri.
 import { api, formatDate } from './api.js';
-import { h, toast } from './ui.js';
+import { h, toast, modal } from './ui.js';
 import { topBar, initials, sizeText } from './projects.js';
 
 export class TeacherView {
@@ -119,5 +119,86 @@ export class TeacherView {
           }, 'Kopyasını al'))));
     }
     host.appendChild(grid);
+  }
+}
+
+/**
+ * Öğretmen: projesini bir sınıftaki öğrencilerin her birine kopyalar.
+ * Öğrenci kopyayı kendi "Projelerim" sayfasında görür ve üzerinde çalışır; öğretmenin projesi değişmez.
+ */
+export async function distributeDialog(project) {
+  let data;
+  try {
+    data = await api.students();
+  } catch (e) {
+    toast(e.message, 'error');
+    return;
+  }
+  const savedClass = sessionStorage.getItem('ogretmen-sinif') || '';
+  const classSel = h('select', { class: 'input' }, h('option', { value: '' }, '— Sınıf seçin —'),
+    ...data.classes.map((c) => h('option', { value: c, selected: c === savedClass }, c)));
+  const name = h('input', { class: 'input', value: project.name, spellcheck: 'false' });
+  const note = h('textarea', { class: 'input', rows: '3', placeholder: 'İsteğe bağlı: öğrencilerin projeyi açınca göreceği açıklama (ör. "4 görevi tamamlayın")' });
+  const skip = h('input', { type: 'checkbox', checked: true });
+  const all = h('input', { type: 'checkbox', checked: true });
+  const list = h('div', { class: 'dist-list' });
+  const info = h('div', { class: 'muted small' });
+  let boxes = [];
+  const renderList = () => {
+    list.innerHTML = '';
+    const cls = classSel.value;
+    const students = data.students.filter((s) => s.role === 'ogrenci' && cls && s.sinif === cls);
+    boxes = students.map((s) => {
+      const cb = h('input', { type: 'checkbox', checked: true });
+      cb.dataset.id = s.id;
+      cb.onchange = () => { all.checked = boxes.every((b) => b.checked); count(); };
+      list.appendChild(h('label', { class: 'check dist-item' }, cb, ' ', s.name, h('span', { class: 'muted' }, ` (${s.uid})`)));
+      return cb;
+    });
+    if (!cls) list.appendChild(h('div', { class: 'muted' }, 'Önce sınıf seçin.'));
+    else if (!students.length) list.appendChild(h('div', { class: 'muted' }, 'Bu sınıfta henüz giriş yapmış öğrenci yok.'));
+    all.checked = true;
+    count();
+  };
+  const count = () => { info.textContent = boxes.length ? `${boxes.filter((b) => b.checked).length} / ${boxes.length} öğrenci seçili` : ''; };
+  classSel.onchange = renderList;
+  all.onchange = () => { for (const b of boxes) b.checked = all.checked; count(); };
+  renderList();
+  const body = h('div', { class: 'dist-editor' },
+    h('p', { class: 'muted', style: { marginTop: 0 } }, 'Projenin bir kopyası seçilen öğrencilerin her birinin "Projelerim" sayfasına eklenir. Öğrenciler kendi kopyalarında çalışır; sizin projeniz değişmez.'),
+    h('div', { class: 'field' }, h('label', {}, 'Sınıf'), classSel),
+    h('div', { class: 'field' }, h('label', { class: 'check' }, all, ' Tümünü seç'), list, info),
+    h('div', { class: 'field' }, h('label', {}, 'Öğrencideki proje adı'), name),
+    h('div', { class: 'field' }, h('label', {}, 'Not'), note),
+    h('label', { class: 'check' }, skip, ' Aynı adda projesi olan öğrencileri atla (iki kez göndermemek için)'),
+    h('p', { class: 'muted small' }, 'Not: Listede yalnızca portal üzerinden en az bir kez giriş yapmış öğrenciler görünür.'));
+  const r = await modal({
+    title: `"${project.name}" projesini sınıfa gönder`,
+    body,
+    width: 560,
+    buttons: [{ text: 'Vazgeç', value: null }, {
+      text: 'Gönder', value: 'ok', primary: true,
+      validate: () => {
+        if (!classSel.value) { toast('Sınıf seçin.', 'error'); return false; }
+        if (!boxes.some((b) => b.checked)) { toast('En az bir öğrenci seçin.', 'error'); return false; }
+        if (!name.value.trim()) { toast('Proje adı yazın.', 'error'); return false; }
+        return true;
+      },
+    }],
+  });
+  if (r !== 'ok') return;
+  sessionStorage.setItem('ogretmen-sinif', classSel.value);
+  try {
+    const res = await api.distributeProject(project.id, {
+      sinif: classSel.value,
+      students: boxes.filter((b) => b.checked).map((b) => Number(b.dataset.id)),
+      name: name.value.trim(),
+      note: note.value,
+      skipExisting: skip.checked,
+    });
+    const msg = `${res.copied.length} öğrenciye gönderildi.` + (res.skipped.length ? ` ${res.skipped.length} öğrenci atlandı (${res.skipped.map((x) => `${x.name}: ${x.reason}`).join(', ')}).` : '');
+    toast(msg, res.copied.length ? 'success' : 'error', 8000);
+  } catch (e) {
+    toast(e.message, 'error');
   }
 }

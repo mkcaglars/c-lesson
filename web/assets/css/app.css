@@ -449,3 +449,8 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; }
 .dataed-foot { margin-top: 8px; display: flex; gap: 10px; align-items: center; }
 .bind-editor .bind-row { display: grid; grid-template-columns: 110px 1fr; gap: 8px; align-items: center; margin-bottom: 6px; }
 .prop-value select + select { margin-top: 2px; }
+
+/* Sınıfa gönder penceresi */
+.dist-editor .dist-list { max-height: 220px; overflow: auto; border: 1px solid var(--border, #e3e3e8); border-radius: 6px; padding: 6px 10px; margin: 6px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; }
+.dist-editor .dist-item { font-size: 13px; }
+.dist-editor textarea { width: 100%; box-sizing: border-box; }
