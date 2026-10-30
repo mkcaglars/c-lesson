@@ -417,6 +417,14 @@ namespace MiniWinForms
             if (callDepth > 0) callDepth--;
         }
 
+        /// <summary>Alan başlatıcısı (kurucudan önce çalışır) için özyineleme koruması.</summary>
+        public static T Init<T>(Func<T> value)
+        {
+            Enter();
+            try { return value(); }
+            finally { Exit(); }
+        }
+
         internal static void BeginTurn(bool resetDepth = false)
         {
             if (resetDepth) callDepth = 0;
