@@ -187,6 +187,9 @@ try {
                 $p = load_project($id, $u, false);
                 $b = body();
                 $name = clean_name($b['name'] ?? ($p['name'] . ' - kopya'));
+                $count = $pdo->prepare('SELECT COUNT(*) FROM projects WHERE user_id = ?');
+                $count->execute([$u['id']]);
+                if ((int)$count->fetchColumn() >= (int)(app_config()['max_projects_per_user'] ?? 200)) fail('Proje sayısı sınırına ulaştınız. Eski projelerden bazılarını silin.');
                 $now = now_str();
                 $pdo->prepare('INSERT INTO projects (user_id, name, data, version, note, created_at, updated_at) VALUES (?, ?, ?, 1, \'\', ?, ?)')
                     ->execute([$u['id'], $name, $p['data'], $now, $now]);
@@ -196,6 +199,7 @@ try {
                 // Öğretmen: projeyi seçilen sınıftaki öğrencilerin her birine kopyalar.
                 require_teacher($u);
                 $p = load_project($id, $u, false);
+                if ((int)$p['user_id'] !== (int)$u['id']) fail('Yalnızca kendi projenizi sınıfa gönderebilirsiniz. Öğrenci projesini önce "Kopyasını al" ile kendi alanınıza alın.', 403);
                 $b = body();
                 $sinif = trim((string)($b['sinif'] ?? ''));
                 if ($sinif === '') fail('Sınıf seçin.');
