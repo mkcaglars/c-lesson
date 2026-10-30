@@ -117,12 +117,16 @@ export class Ide {
     let backup = null;
     try { backup = JSON.parse(localStorage.getItem(this.backupKey()) || 'null'); } catch { /* bozuk */ }
     if (!backup) return;
-    if (backup.version !== this.version || JSON.stringify(backup.data) === JSON.stringify(this.data)) {
+    if (JSON.stringify(backup.data) === JSON.stringify(this.data)) {
       localStorage.removeItem(this.backupKey());
       return;
     }
+    // Sürüm farklıysa da sorulur (yedek silinmez): proje bu arada başka yerde kaydedilmiş olabilir.
+    const newer = backup.version !== this.version;
     const ok = await confirmBox('Kaydedilmemiş değişiklikler bulundu',
-      `Bu bilgisayarda ${new Date(backup.time).toLocaleString('tr-TR')} tarihinde yapılmış ama sunucuya kaydedilememiş değişiklikler var. Geri yüklensin mi?`,
+      `Bu bilgisayarda ${new Date(backup.time).toLocaleString('tr-TR')} tarihinde yapılmış ama sunucuya kaydedilememiş değişiklikler var.` +
+      (newer ? ' Dikkat: proje o tarihten sonra başka bir yerde de kaydedilmiş. Geri yüklerseniz sunucudaki daha yeni sürümün üzerine yazılır.' : '') +
+      ' Geri yüklensin mi?',
       'Geri yükle');
     if (ok) {
       this.data = this.normalizeData(backup.data);
@@ -846,7 +850,7 @@ export class Ide {
   }
 
   async save({ force = false } = {}) {
-    if (this.readonly) return true;
+    if (this.readonly || this.disposed) return true;
     clearTimeout(this.saveTimer);
     if (this.saving) {
       this.saveAgain = true;
@@ -1135,8 +1139,13 @@ export class Ide {
     document.removeEventListener('keydown', this.keyHandler);
     window.removeEventListener('beforeunload', this.unloadHandler);
     clearTimeout(this.checkTimer);
+    clearTimeout(this.saveTimer);
     if (this.running) await this.stop();
     if (this.dirty) await this.save();
+    // Kapanmış projenin yeniden deneme kaydı, sonradan açılan yeni sürümün üzerine yazmasın.
+    this.disposed = true;
+    clearTimeout(this.saveTimer);
+    this.desktop?.dispose();
     this.overlay?.remove();
     this.editor?.dispose();
     return true;
