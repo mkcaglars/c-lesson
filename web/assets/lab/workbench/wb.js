@@ -7,6 +7,7 @@ import { TableEditor, SchemaEditor } from './tableeditor.js';
 import { openAdminPage } from './admin.js';
 import { typeText } from '../mysql/engine.js';
 import { applyScriptWizard } from './review.js';
+import { reverseEngineer, synchronizeModel } from './eer.js';
 import { defaultConnection } from '../store.js';
 
 const bq = (s) => '`' + String(s).replace(/`/g, '``') + '`';
@@ -305,8 +306,9 @@ export class WbConnection {
         ['Connect to Database...', () => this.wb.showHome()],
         ['Manage Connections...', () => this.wb.editConnection(this.conn)],
         null,
-        ['Reverse Engineer...\tCtrl+R', null, { disabled: true }],
+        ['Reverse Engineer...\tCtrl+R', () => reverseEngineer(this)],
         ['Forward Engineer...\tCtrl+G', null, { disabled: true }],
+        ['Synchronize Model...\tCtrl+Shift+Z', () => synchronizeModel(this), { disabled: !this.tabs.some((t) => t.eerDb) }],
       ]),
       m('Server', () => [
         ['Server Status', () => openAdminPage(this, 'status')],

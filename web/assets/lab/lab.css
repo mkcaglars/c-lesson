@@ -522,3 +522,37 @@ select.lab-input { padding: 1px 4px; }
 .lab-app-status { padding: 20px; color: #444; }
 .lab-icon-img img { width: 40px; height: 40px; object-fit: contain; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
 .lab-start-ico img { width: 24px; height: 24px; object-fit: contain; }
+
+/* EER diyagramı */
+.eer { display: flex; flex-direction: column; flex: 1; min-height: 0; background: #fff; }
+.eer-main { display: flex; flex: 1; min-height: 0; }
+.eer-tools { width: 40px; background: #f0f0f0; border-right: 1px solid #d0d0d0; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0; }
+.eer-tool { width: 32px; height: 28px; border: 1px solid transparent; background: transparent; border-radius: 3px; cursor: pointer; font: 11px "Segoe UI", sans-serif; }
+.eer-tool:hover:not(:disabled) { border-color: #9ab; background: #e5f0fb; }
+.eer-tool.on { border-color: #2b6cb0; background: #d3e4f7; }
+.eer-tool:disabled { opacity: .4; cursor: default; }
+.eer-sep { width: 24px; height: 1px; background: #ccc; margin: 4px 0; }
+.eer-scroll { flex: 1; overflow: auto; position: relative; background: #fdfdfd repeating-linear-gradient(0deg, transparent 0 23px, #f0f0f0 23px 24px), repeating-linear-gradient(90deg, transparent 0 23px, #f0f0f0 23px 24px); }
+.eer-canvas { position: relative; min-width: 100%; min-height: 100%; }
+.eer-svg { position: absolute; left: 0; top: 0; pointer-events: none; }
+.eer-svg .eer-hit { stroke: transparent; stroke-width: 10; pointer-events: stroke; cursor: pointer; }
+.eer-rel { stroke: #4a5a70; stroke-width: 1.6; }
+.eer-rel.dashed { stroke-dasharray: 6 4; }
+.eer-rel.sel { stroke: #e48e00; stroke-width: 2.4; }
+.eer-foot { fill: #fff; stroke: #4a5a70; }
+.eer-one { fill: #4a5a70; }
+.eer-table { position: absolute; width: 200px; background: #fff; border: 1px solid #c8a24b; border-radius: 3px; box-shadow: 1px 2px 5px rgba(0,0,0,.15); font: 11px "Segoe UI", sans-serif; z-index: 1; }
+.eer-thead { background: linear-gradient(#fbe7b5, #f2cf7c); padding: 4px 8px; font-weight: 700; cursor: move; border-bottom: 1px solid #c8a24b; }
+.eer-col { display: flex; gap: 4px; align-items: center; padding: 1px 6px; cursor: default; }
+.eer-col:hover { background: #eef4fb; }
+.eer-col.pick { background: #ffe1a8; }
+.eer-ci { width: 14px; text-align: center; font-size: 10px; }
+.eer-ci.fk { color: #c0392b; }
+.eer-ci.nn { color: #2b6cb0; }
+.eer-ci.n { color: #888; }
+.eer-ct { margin-left: auto; color: #888; font-size: 10px; }
+.eer-tfoot { background: #f7efd9; padding: 2px 8px; color: #8a6d2b; border-top: 1px solid #eadbb0; }
+.eer-status { padding: 3px 10px; font-size: 12px; color: #444; background: #f3f3f3; border-top: 1px solid #ddd; }
+.eer-editor { border-top: 2px solid #c8c8c8; background: #f7f7f7; max-height: 220px; overflow: auto; }
+.eer-ed-head { display: flex; align-items: center; padding: 4px 10px; background: #e2e2e2; }
+.eer-ed-body { padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
