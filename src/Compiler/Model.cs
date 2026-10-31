@@ -10,6 +10,28 @@ namespace CLesson.Compiler
         [JsonPropertyName("content")] public string Content { get; set; } = "";
     }
 
+    /// <summary>Setup projesi (File System düzenleyicisindeki öğeler ve Properties penceresi)</summary>
+    public sealed class SetupInput
+    {
+        [JsonPropertyName("name")] public string Name { get; set; } = "Setup";
+        [JsonPropertyName("props")] public Dictionary<string, JsonElement> Props { get; set; } = new();
+        [JsonPropertyName("items")] public List<SetupItem> Items { get; set; } = new();
+    }
+
+    public sealed class SetupItem
+    {
+        [JsonPropertyName("id")] public string Id { get; set; } = "";
+        /// <summary>app | desktop | programs</summary>
+        [JsonPropertyName("folder")] public string Folder { get; set; } = "app";
+        /// <summary>output | file | shortcut</summary>
+        [JsonPropertyName("kind")] public string Kind { get; set; } = "file";
+        [JsonPropertyName("name")] public string Name { get; set; } = "";
+        /// <summary>Dosya içeriği (data: URL)</summary>
+        [JsonPropertyName("content")] public string Content { get; set; }
+        [JsonPropertyName("target")] public string Target { get; set; }
+        [JsonPropertyName("icon")] public string Icon { get; set; }
+    }
+
     /// <summary>Derleyiciye gelen proje (tarayıcıdaki proje JSON'unun ilgili kısmı).</summary>
     public sealed class ProjectInput
     {
@@ -22,6 +44,8 @@ namespace CLesson.Compiler
         [JsonPropertyName("references")] public List<string> References { get; set; } = new();
         /// <summary>ZIP biçimi: "net8" (SDK projesi) ya da "net48" (.NET Framework 4.8, kitaptaki Visual Studio düzeni).</summary>
         [JsonPropertyName("exportTarget")] public string ExportTarget { get; set; } = "net8";
+        /// <summary>Setup Project (Visual Studio Installer Projects) tanımı; net48 ZIP'inde .vdproj olarak üretilir.</summary>
+        [JsonPropertyName("setup")] public SetupInput Setup { get; set; }
 
         static readonly JsonSerializerOptions options = new() { PropertyNameCaseInsensitive = true };
 

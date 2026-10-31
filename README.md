@@ -88,7 +88,7 @@ Belgeler:
 - `ShowDialog()`, `MessageBox.Show()` ve `InputBox` bir olay metodunun içindeyse WinForms'taki gibi bekler. `FormClosing` ve `KeyPress` gibi sonucun hemen gerektiği olaylarda tarayıcının kendi pencereleri kullanılır.
 - `Thread.Sleep` yerine `Timer` veya `await Task.Delay(...)` kullanılmalıdır.
 - Henüz desteklenmeyenler: çizim (`Graphics`, `Paint`), `ListView`, `TreeView`, gerçek SQL Server bağlantısı (`SqlConnection`), resim sütunları (Resim alanı laboratuvarda yapılır).
-- MySQL simülatöründe saklı yordam, tetikleyici ve veritabanları arası sorgular yoktur.
+- MySQL simülatöründe EVENT (zamanlanmış olay), `max_sp_recursion_depth` > 0 ile özyinelemeli yordam, LEFT JOIN'li çok tablolu UPDATE ve tek komutta birden fazla tablodan DELETE desteklenmez.
 - Bilgisayardaki dosyalara doğrudan yol ile (`"C:\\resim.jpg"`) erişilemez; dosya `OpenFileDialog` ile seçilir. Seçilen ve kaydedilen dosyalar sanal `C:/Users/Ogrenci/Belgeler/` klasöründe durur.
 - ZIP'teki veritabanı projesi okul.mdf yerine `okul.xml` dosyasını kullanır (Visual Studio'da da çalışır); gerçek veritabanı için `okul.sql` betiği eklenir.
 - Güvenlik için yansıma (reflection), ağ ve işletim sistemi API'leri öğrenci kodunda kapalıdır.

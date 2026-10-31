@@ -1018,6 +1018,10 @@ export class Ide {
       const engine = await this.engine();
       const pj = JSON.parse(this.projectJson('zip'));
       pj.exportTarget = target;
+      if (target === 'net48' && this.data.setup) {
+        const su = this.data.setup;
+        pj.setup = { name: su.name, props: su.props || {}, items: (su.items || []).map((it) => ({ id: it.id, folder: it.folder, kind: it.kind, name: it.name, content: it.kind === 'file' ? it.content : undefined, target: it.target, icon: it.icon })) };
+      }
       // .edmx dosyalarını güncel (tam) biçimde yeniden üret
       if ((this.data.efModels || []).length) {
         try {

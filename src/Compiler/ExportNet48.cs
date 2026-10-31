@@ -121,6 +121,9 @@ namespace CLesson.Compiler
                     w.Write((content ?? "").Replace("\r\n", "\n").Replace("\n", "\r\n"));
                 }
                 Add(ns + ".csproj", x.ToString());
+                var setup = project.Setup;
+                string setupName = setup != null ? SafeFileName(string.IsNullOrWhiteSpace(setup.Name) ? ns + "Setup" : setup.Name) : null;
+                string setupGuid = setup != null ? StableGuid("setup:" + setupName).ToUpperInvariant() : null;
                 Add(ns + ".sln",
                     "\nMicrosoft Visual Studio Solution File, Format Version 12.00\n" +
                     "# Visual Studio Version 16\n" +
@@ -128,6 +131,7 @@ namespace CLesson.Compiler
                     "MinimumVisualStudioVersion = 10.0.40219.1\n" +
                     "Project(\"{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}\") = \"" + ns + "\", \"" + ns + ".csproj\", \"{" + projGuid + "}\"\n" +
                     "EndProject\n" +
+                    (setup != null ? "Project(\"{54435603-DBB4-11D2-8724-00A0C9A8B90C}\") = \"" + setupName + "\", \"" + setupName + "\\" + setupName + ".vdproj\", \"{" + setupGuid + "}\"\n" + "EndProject\n" : "") +
                     "Global\n" +
                     "\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n" +
                     "\t\tDebug|Any CPU = Debug|Any CPU\n" +
@@ -138,6 +142,7 @@ namespace CLesson.Compiler
                     "\t\t{" + projGuid + "}.Debug|Any CPU.Build.0 = Debug|Any CPU\n" +
                     "\t\t{" + projGuid + "}.Release|Any CPU.ActiveCfg = Release|Any CPU\n" +
                     "\t\t{" + projGuid + "}.Release|Any CPU.Build.0 = Release|Any CPU\n" +
+                    (setup != null ? "\t\t{" + setupGuid + "}.Debug|Any CPU.ActiveCfg = Debug\n" + "\t\t{" + setupGuid + "}.Release|Any CPU.ActiveCfg = Release\n" : "") +
                     "\tEndGlobalSection\n" +
                     "\tGlobalSection(SolutionProperties) = preSolution\n" +
                     "\t\tHideSolutionNode = FALSE\n" +
@@ -146,6 +151,18 @@ namespace CLesson.Compiler
                     "\t\tSolutionGuid = {" + slnGuid + "}\n" +
                     "\tEndGlobalSection\n" +
                     "EndGlobal\n");
+                if (setup != null)
+                {
+                    // Setup projesi: .vdproj + File System düzenleyicisine eklenen dosyalar (ikon vb.)
+                    Add(setupName + "/" + setupName + ".vdproj", Vdproj(setup, ns, projGuid));
+                    foreach (var it in (setup.Items ?? new()).Where(i => i.Kind == "file" && !string.IsNullOrEmpty(i.Content)))
+                    {
+                        var entry = zip.CreateEntry(safeName + "/" + setupName + "/" + SafeFileName(it.Name), CompressionLevel.Optimal);
+                        using var st = entry.Open();
+                        var bytes = DataUrlBytes(it.Content);
+                        st.Write(bytes, 0, bytes.Length);
+                    }
+                }
                 foreach (var f in sources) Add(f.Name, f.Content);
                 foreach (var e in edmx) Add(e.Name, e.Content);
                 Add("App.config", appConfig);
@@ -163,7 +180,10 @@ namespace CLesson.Compiler
                 notes.Append("NuGet paketleri (MySql.Data, EntityFramework) ilk derlemede otomatik indirilir (internet gerekir).\r\n");
                 if (mysql || ef) notes.Append("\r\nMySQL: Program bilgisayarınızda çalışan MySQL sunucusuna bağlanır. Veritabanını laboratuvardaki gibi oluşturun\r\n(ya da laboratuvarda Data Export ile aldığınız yedeği Data Import ile yükleyin) ve App.config'teki şifreyi kendi sunucunuza göre düzenleyin.\r\n");
                 if (edmx.Count > 0) notes.Append("\r\nEntity Framework: .edmx dosyası Entity Data Model tasarımcısında açılır. Sınıflar hazır olarak eklenmiştir;\r\n\"Update Model from Database\" yaparsanız Visual Studio kod üretim şablonlarını (.tt) ekleyebilir.\r\n");
-                notes.Append("\r\nSetup projesi: Visual Studio'da Extensions > Manage Extensions ile \"Microsoft Visual Studio Installer Projects\" eklentisini kurup\r\nkitaptaki gibi File > Add > New Project > Setup Project ile yeniden oluşturun.\r\n");
+                if (setup != null)
+                    notes.Append("\r\nSetup projesi (" + setupName + "): Çözümde kurulum projesi olarak yer alır. Açabilmek için Visual Studio'da\r\nExtensions > Manage Extensions ile \"Microsoft Visual Studio Installer Projects 2022\" eklentisini kurun.\r\nFile System düzenleyicisindeki öğeler (Primary output, dosyalar, kısayollar) ve Properties değerleri aktarılmıştır.\r\nKurulum iletişim kutuları için gerekirse: Setup projesine sağ tık > View > User Interface. Derlemek için Setup projesine\r\nsağ tıklayıp Build deyin; .msi ve setup.exe " + setupName + "\\Debug klasöründe oluşur.\r\nProje açılmazsa kitaptaki gibi File > Add > New Project > Setup Project ile yeniden oluşturun.\r\n");
+                else
+                    notes.Append("\r\nSetup projesi: Visual Studio'da Extensions > Manage Extensions ile \"Microsoft Visual Studio Installer Projects\" eklentisini kurup\r\nkitaptaki gibi File > Add > New Project > Setup Project ile oluşturun.\r\n");
                 Add("BENIOKU.txt", notes.ToString());
             }
             return ms.ToArray();

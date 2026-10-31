@@ -58,5 +58,39 @@ namespace Tests
             Assert.Contains("net8.0-windows", files["KutuphaneProjesi.csproj"]);
             Assert.Contains("KutuphaneProjesi.slnx", files.Keys);
         }
+    
+        [Fact]
+        public void Net48ZipContainsSetupProject()
+        {
+            var p = Project("net48");
+            p.Setup = new SetupInput { Name = "KutuphaneSetup" };
+            p.Setup.Props["Manufacturer"] = System.Text.Json.JsonDocument.Parse("\"MEB Okulu\"").RootElement.Clone();
+            p.Setup.Props["TargetPlatform"] = System.Text.Json.JsonDocument.Parse("\"x64\"").RootElement.Clone();
+            p.Setup.Items.Add(new SetupItem { Id = "o1", Folder = "app", Kind = "output", Name = "Primary output" });
+            p.Setup.Items.Add(new SetupItem { Id = "f1", Folder = "app", Kind = "file", Name = "kitap.ico", Content = "data:image/x-icon;base64,AAABAAEAEBA=" });
+            p.Setup.Items.Add(new SetupItem { Id = "s1", Folder = "desktop", Kind = "shortcut", Name = "Kütüphane", Target = "o1", Icon = "f1" });
+            var files = Unzip(CodeTools.ExportZip(p));
+            Assert.Contains("{54435603-DBB4-11D2-8724-00A0C9A8B90C}", files["KutuphaneProjesi.sln"]);
+            Assert.Contains("KutuphaneSetup\\KutuphaneSetup.vdproj", files["KutuphaneProjesi.sln"]);
+            Assert.Contains("KutuphaneSetup/kitap.ico", files.Keys);
+            var v = files["KutuphaneSetup/KutuphaneSetup.vdproj"].TrimStart('﻿');
+            Assert.StartsWith("\"DeployProject\"", v);
+            Assert.Equal(v.Count(c => c == '{') , v.Count(c => c == '}'));
+            Assert.Contains("\"Manufacturer\" = \"8:MEB Okulu\"", v);
+            Assert.Contains("\"TargetPlatform\" = \"3:1\"", v);
+            Assert.Contains("[ProgramFiles64Folder][Manufacturer]\\\\[ProductName]", v);
+            Assert.Contains("\"OutputProjectGuid\" = \"8:{", v);
+            // kısayol: hedef Primary output, simge kitap.ico, klasör masaüstü
+            var lines = v.Split("\r\n");
+            int sc = Array.FindIndex(lines, l => l.Contains("{970C0BB2-C7D0-45D7-ABFA-7EC378858BC0}:"));
+            Assert.True(sc > 0);
+            string KeyOf(string marker) => lines.First(l => l.Contains(marker)).Split(':').Last().TrimEnd('"');
+            string outKey = KeyOf("{5259A561-127C-4D43-A0A1-72F10C7B3BF8}:");
+            string icoKey = KeyOf("{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:");
+            string deskKey = lines.First(l => l.Contains("{1525181F-901A-416C-8A58-119130FE478E}:")).Split(':').Last().TrimEnd('"');
+            Assert.Contains(lines.Skip(sc).Take(14), l => l.Contains("\"Target\" = \"8:" + outKey + "\""));
+            Assert.Contains(lines.Skip(sc).Take(14), l => l.Contains("\"Icon\" = \"8:" + icoKey + "\""));
+            Assert.Contains(lines.Skip(sc).Take(14), l => l.Contains("\"Folder\" = \"8:" + deskKey + "\""));
+        }
     }
 }
