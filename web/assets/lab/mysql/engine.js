@@ -4,6 +4,8 @@
 import { tokenize, splitStatements } from './lexer.js';
 import { registerFunctions, fold, normDate, normDateTime, normTime, likeMatch } from './funcs.js';
 
+import { installRoutines } from './routines.js';
+
 export const META_TABLE = '__mysql_sim_meta';
 export const SYSTEM_DBS = ['information_schema', 'mysql', 'performance_schema', 'sys'];
 export const VERSIONS = { book: '8.0.36', new: '8.4.3' };
@@ -230,6 +232,7 @@ export class MySqlServer {
       version: () => this.version,
       user: () => (this.active ? `${this.active.user}@${this.active.host}` : 'root@localhost'),
     });
+    this.registerRoutineHelpers(db);
     db.run('PRAGMA foreign_keys = ' + (this.active?.fkChecks === false ? 'OFF' : 'ON'));
   }
 
@@ -275,6 +278,7 @@ export class MySqlServer {
     meta.views ??= {};
     const ctx = { name: key, sql: sqlite, meta };
     this.dbs.set(key, ctx);
+    this.registerUserFunctions(ctx);
     return ctx;
   }
 
@@ -285,6 +289,7 @@ export class MySqlServer {
     const bytes = ctx.sql.export();
     // sql.js export() bağlantıyı yeniden açar: işlevler ve ayarlar yeniden kurulur.
     this.prepareSqlite(ctx.sql);
+    this.registerUserFunctions(ctx);
     return bytes;
   }
 
@@ -402,6 +407,13 @@ export class Session {
     const results = [];
     for (const st of list) {
       const r = this.run(script, st);
+      if (r.multi) {
+        // CALL: yordamın döndürdüğü her sonuç kümesi ayrı bir sonuç
+        const sets = r.multi;
+        delete r.multi;
+        for (const x of sets) results.push({ ...r, ...x, sql: r.sql, ok: true, message: `${x.rows.length} row(s) returned`, editable: null, affected: 0 });
+        r.message = `${r.affected} row(s) affected`;
+      }
       results.push(r);
       if (!r.ok && stopOnError) break;
     }
@@ -413,6 +425,8 @@ export class Session {
     const t0 = performance.now();
     const res = { sql: st.sql, s: st.s, e: st.e, ok: true, affected: 0, message: '' };
     this.server.active = this;
+    this.server.trgFlag = 0;
+    this.frame = null;
     try {
       if (!this.server.running || this.server.epoch !== this.epoch) throw new MySqlError(2013, 'Lost connection to MySQL server during query', 'HY000');
       const out = this.dispatch(src, st);
@@ -464,6 +478,10 @@ export class Session {
       case 'SELECT':
       case 'WITH':
       case '(':
+        if (this.findInto(st.tokens.filter(sig)) >= 0) {
+          try { return this.selectInto(src, st); } catch (e) { if (e.warning) return { affected: 0, warnings: 1 }; throw e; }
+        }
+        return this.dml(src, st, 'SELECT');
       case 'INSERT':
       case 'REPLACE':
       case 'UPDATE':
@@ -471,7 +489,8 @@ export class Session {
         return this.dml(src, st, w === '(' || w === 'WITH' ? 'SELECT' : w);
       case 'TABLE':
         return this.dml(src, { ...st, tokens: [...tokenize('SELECT * FROM'), { t: 'ws', v: ' ' }, ...st.tokens.slice(st.tokens.indexOf(first) + 1)] }, 'SELECT');
-      case 'CREATE': return this.create(p);
+      case 'CREATE': return this.create(p, src, st);
+      case 'CALL': return this.call(p, src, st);
       case 'DROP': return this.drop(p);
       case 'ALTER': return this.alter(p);
       case 'RENAME': return this.renameTables(p);
@@ -540,7 +559,7 @@ export class Session {
       character_set_connection: 'utf8mb4', character_set_results: 'utf8mb4', collation_server: 'utf8mb4_0900_ai_ci', collation_connection: 'utf8mb4_0900_ai_ci',
       lower_case_table_names: 1, hostname: 'OGRENCI-PC', datadir: `C:\\ProgramData\\MySQL\\MySQL Server ${this.server.version.slice(0, 3)}\\Data\\`,
       basedir: `C:\\Program Files\\MySQL\\MySQL Server ${this.server.version.slice(0, 3)}\\`, time_zone: 'SYSTEM', unique_checks: 1, sql_mode: 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION',
-      sql_notes: 1, max_allowed_packet: 67108864, default_storage_engine: 'InnoDB', transaction_isolation: 'REPEATABLE-READ', tx_isolation: 'REPEATABLE-READ',
+      sql_notes: 1, log_bin_trust_function_creators: this.server.logBinTrust ? 1 : 0, log_bin: 1, max_allowed_packet: 67108864, default_storage_engine: 'InnoDB', transaction_isolation: 'REPEATABLE-READ', tx_isolation: 'REPEATABLE-READ',
     };
     return n in map ? map[n] : null;
   }
@@ -615,6 +634,7 @@ export class Session {
     const n = lc(name);
     const on = v === 1 || v === '1' || /^(on|true)$/i.test(String(v));
     if (n === 'sql_safe_updates') this.safeUpdates = on;
+    else if (n === 'log_bin_trust_function_creators') this.server.logBinTrust = on;
     else if (n === 'foreign_key_checks') {
       this.fkChecks = on;
       for (const c of this.server.dbs.values()) { try { c.sql.run('PRAGMA foreign_keys = ' + (on ? 'ON' : 'OFF')); } catch { /* işlem içinde */ } }
@@ -651,6 +671,7 @@ export class Session {
       const t = toks[k];
       const prev = T(j - 1);
       const next = T(j + 1);
+      if (t.__out != null) { out[k] = t.__out; continue; }
       if (castSkip && frames.length >= castSkip.depth) {
         if (t.t === 'op' && t.v === ')' && frames.length === castSkip.depth) { castSkip = null; } else {
           if (t.t === 'op' && t.v === '(') frames.push({});
@@ -680,12 +701,18 @@ export class Session {
               continue;
             }
           }
+          // saklı program yerel değişkeni (MySQL'de yerel değişken sütun adından önceliklidir)
+          if ((this.frame || opts.trigger) && !t.__noLocal && !(prev && prev.t === 'op' && prev.v === '.') && !(next && next.t === 'op' && (next.v === '.' || (next.v === '(' && t.t === 'id'))) && !(prev && prev.t === 'id' && prev.u === 'AS')) {
+            const lv = this.localRef(name, opts);
+            if (lv !== undefined) { out[k] = lv; t.__isLocal = true; break; }
+          }
           names.add(lc(name));
           if (t.t === 'qid') { out[k] = dq(name); break; }
           const u = t.u;
           const isCall = next && next.t === 'op' && next.v === '(' && next.s === t.e;
           const isCallLoose = next && next.t === 'op' && next.v === '(';
-          if (isCall || (isCallLoose && FUNC_MAP[u] && !['LEFT', 'RIGHT'].includes(u))) {
+          const tableCtx = prev && prev.t === 'id' && ['INTO', 'FROM', 'JOIN', 'UPDATE', 'TABLE', 'EXISTS'].includes(prev.u);
+          if (!tableCtx && (isCall || (isCallLoose && FUNC_MAP[u] && !['LEFT', 'RIGHT'].includes(u)))) {
             if (FUNC_MAP[u]) out[k] = FUNC_MAP[u];
             break;
           }
@@ -777,6 +804,8 @@ export class Session {
             const v = this.sysVar(t.v);
             if (v === null) throw err(1193, `Unknown system variable '${t.v.slice(2)}'`);
             out[k] = typeof v === 'number' ? String(v) : sq(v);
+          } else if (opts.trigger) {
+            out[k] = `m_getvar(${sq(lc(t.v.slice(1).replace(/[`'"]/g, '')))})`;
           } else {
             const v = this.vars.get(lc(t.v.slice(1).replace(/[`'"]/g, '')));
             out[k] = v == null ? 'NULL' : typeof v === 'number' ? String(v) : sq(v);
@@ -800,7 +829,7 @@ export class Session {
     if (!opts.noOrderWrap) this.wrapOrderBy(toks, S, out, pre, post);
     if (opts.aliasSelect) this.aliasSelectList(toks, S, out, post, src);
     let text = '';
-    for (let i = 0; i < toks.length; i++) text += pre[i] + out[i] + post[i];
+    for (let i = 0; i < toks.length; i++) text += pre[i] + (toks[i].__pre || '') + out[i] + post[i] + (toks[i].__post || '');
     return { text, qualifiers, names };
   }
 
@@ -904,7 +933,7 @@ export class Session {
       const first = T(a);
       const last = T(b);
       // basit sütun: ad, t.ad, *, t.*
-      if (len === 1 && (first.t === 'id' || first.t === 'qid' || (first.t === 'op' && first.v === '*'))) continue;
+      if (len === 1 && !first.__isLocal && (first.t === 'id' || first.t === 'qid' || (first.t === 'op' && first.v === '*'))) continue;
       if (len === 3 && T(a + 1).v === '.' && (first.t === 'id' || first.t === 'qid')) continue;
       if (len === 5 && T(a + 1).v === '.' && T(a + 3).v === '.') continue;
       if (len >= 2) {
@@ -1173,6 +1202,8 @@ export class Session {
   mapError(e, c) {
     if (e instanceof MySqlError) return e;
     const msg = String(e.message || e);
+    const um = /m!err!(\d+)!([0-9A-Z]{5})!([\s\S]*)$/.exec(msg);
+    if (um) return new MySqlError(Number(um[1]), um[3], um[2]);
     const db = c.ctx?.name;
     let m;
     const tbl = (n) => `${db ?? ''}.${lc(n)}`;
@@ -1214,6 +1245,10 @@ export class Session {
     if ((m = /^ambiguous column name: (.+)$/.exec(msg))) return err(1052, `Column '${m[1]}' in field list is ambiguous`);
     if (/^misuse of aggregate/.test(msg)) return err(1111, 'Invalid use of group function');
     if ((m = /^no such function: (.+)$/.exec(msg))) return err(1305, `FUNCTION ${db ?? ''}${db ? '.' : ''}${m[1]} does not exist`);
+    if ((m = /^wrong number of arguments to function (\w+)/.exec(msg)) && c.ctx?.meta.functions?.[lc(m[1])]) {
+      const f = c.ctx.meta.functions[lc(m[1])];
+      return err(1318, `Incorrect number of arguments for FUNCTION ${db}.${f.name}; expected ${f.params.length}, got ${argCount(c.toks || [], m[1], f.params.length)}`);
+    }
     if ((m = /^wrong number of arguments to function (\w+)/.exec(msg))) return err(1582, `Incorrect parameter count in the call to native function '${m[1].replace(/^m_/, '').toUpperCase()}'`);
     if (/ORDER BY term does not match/.test(msg)) return err(1054, 'Unknown column in \'order clause\'');
     if (/sub-select returns \d+ columns/.test(msg) || /row value misused/.test(msg)) return err(1241, 'Operand should contain 1 column(s)');
@@ -1425,8 +1460,13 @@ export class Session {
 
   // ------------------------------------------------------------ CREATE
 
-  create(p) {
+  create(p, src, st) {
     p.expect('CREATE');
+    if (p.is('DEFINER') || p.is('ALGORITHM') || p.is('SQL')) {
+      // CREATE [ALGORITHM=..] [DEFINER=..] [SQL SECURITY ..] VIEW|PROCEDURE|FUNCTION|TRIGGER|EVENT
+      while (!p.done() && !['VIEW', 'PROCEDURE', 'FUNCTION', 'TRIGGER', 'EVENT'].includes(p.cur.u)) p.i++;
+      if (p.eat('VIEW')) return this.createView(p, false);
+    }
     if (p.eat('DATABASE') || p.eat('SCHEMA')) {
       const ifNot = p.eat('IF', 'NOT', 'EXISTS');
       const name = p.name();
@@ -1464,7 +1504,7 @@ export class Session {
       throw p.syntax();
     }
     if (p.eat('VIEW')) return this.createView(p, false);
-    if (p.is('PROCEDURE') || p.is('FUNCTION') || p.is('TRIGGER') || p.is('EVENT')) throw err(1235, 'Saklı yordam / tetikleyici bu simülatörde desteklenmiyor.');
+    if (p.is('PROCEDURE') || p.is('FUNCTION') || p.is('TRIGGER') || p.is('EVENT')) return this.createRoutine(p, src, st);
     throw p.syntax();
   }
 
@@ -1878,6 +1918,7 @@ export class Session {
     if (usets.length) {
       ctx.sql.run(`CREATE TRIGGER ${dq(t + '.~nu')} AFTER UPDATE ON ${dq(t)} BEGIN UPDATE ${dq(t)} SET ${usets.join(', ')} WHERE rowid = NEW.rowid; END`);
     }
+    this.createUserTriggers(ctx, t);
   }
 
   sqliteDdl(ctx, meta, sqliteName) {
@@ -2034,6 +2075,7 @@ export class Session {
           x.ctx.sql.run('PRAGMA foreign_keys = ' + (this.fkChecks ? 'ON' : 'OFF'));
         }
         delete x.ctx.meta.tables[x.name];
+        for (const [k, tg] of Object.entries(x.ctx.meta.triggers || {})) if (tg.table === x.name) delete x.ctx.meta.triggers[k];
         this.saveMetaAndNotify(x.ctx);
       }
       return { affected: 0, schema: true, db: dropping[0]?.ctx.name };
@@ -2056,6 +2098,7 @@ export class Session {
       }
       return { affected: 0, schema: true };
     }
+    if (p.is('PROCEDURE') || p.is('FUNCTION') || p.is('TRIGGER')) return this.dropRoutine(p);
     if (p.eat('INDEX') || p.eat('KEY')) {
       const name = p.name(true);
       p.expect('ON');
@@ -2417,7 +2460,14 @@ export class Session {
     meta.name = finalName;
     for (const f of meta.fks) if (lc(f.refTable) === name) f.refTable = finalName;
     const nextAi = this.autoIncNext(ctx, name);
-    this.rebuild(ctx, old, meta, source, dataChange);
+    const movedTriggers = renameTo && renameTo !== name ? Object.values(ctx.meta.triggers || {}).filter((tg) => tg.table === name) : [];
+    for (const tg of movedTriggers) tg.table = renameTo;
+    try {
+      this.rebuild(ctx, old, meta, source, dataChange);
+    } catch (e) {
+      for (const tg of movedTriggers) tg.table = name;
+      throw e;
+    }
     if (renameTo && renameTo !== name) {
       for (const m of Object.values(ctx.meta.tables)) for (const f of m.fks) if (lc(f.refTable) === name) f.refTable = renameTo;
     }
@@ -2552,7 +2602,9 @@ export class Session {
         if (fk) throw err(1701, `Cannot truncate a table referenced in a foreign key constraint (\`${ctx.name}\`.\`${m.name}\`, CONSTRAINT \`${fk.name}\`)`);
       }
     }
-    ctx.sql.run(`DELETE FROM ${dq(name)}`);
+    // TRUNCATE, DELETE tetikleyicilerini çalıştırmaz
+    this.server.trgFlag = 1;
+    try { ctx.sql.run(`DELETE FROM ${dq(name)}`); } finally { this.server.trgFlag = 0; }
     try { ctx.sql.run('DELETE FROM sqlite_sequence WHERE name = ?', [name]); } catch { /* yok */ }
     this.changed(ctx, false);
     return { affected: 0, db: ctx.name, table: name };
@@ -2662,6 +2714,8 @@ export class Session {
     }
     if (p.eat('CHARACTER', 'SET') || p.eat('CHARSET')) return this.rowsResult(['Charset', 'Description', 'Default collation', 'Maxlen'], [['utf8mb4', 'UTF-8 Unicode', 'utf8mb4_0900_ai_ci', '4'], ['latin1', 'cp1252 West European', 'latin1_swedish_ci', '1']]);
     if (p.eat('COLLATION')) return this.rowsResult(['Collation', 'Charset', 'Id', 'Default'], [['utf8mb4_0900_ai_ci', 'utf8mb4', '255', 'Yes'], ['utf8mb4_turkish_ci', 'utf8mb4', '233', ''], ['utf8mb4_tr_0900_ai_ci', 'utf8mb4', '265', '']]);
+    const rr = this.showRoutines(p, like);
+    if (rr) return rr;
     throw p.syntax();
   }
 
@@ -2890,6 +2944,22 @@ export class Session {
         }
         out.push(`/*!40000 ALTER TABLE \`${t}\` ENABLE KEYS */;`, 'UNLOCK TABLES;', '');
       }
+      const trgs = Object.values(ctx.meta.triggers || {}).filter((x) => x.table === t);
+      if (trgs.length && opts.triggers !== false && opts.structure !== false) {
+        for (const tg of trgs) {
+          const [u, h] = tg.definer.split('@');
+          out.push('DELIMITER ;;', `/*!50003 CREATE*/ /*!50017 DEFINER=\`${u}\`@\`${h}\`*/ /*!50003 TRIGGER \`${tg.name}\` ${tg.timing} ${tg.event} ON \`${t}\` FOR EACH ROW ${tg.body} */;;`, 'DELIMITER ;');
+        }
+        out.push('');
+      }
+    }
+    const routines = [...Object.values(ctx.meta.procedures || {}), ...Object.values(ctx.meta.functions || {})];
+    if (opts.routines && routines.length) {
+      out.push('--', `-- Dumping routines for database '${ctx.name}'`, '--');
+      for (const r of routines) {
+        out.push(`/*!50003 DROP ${r.type} IF EXISTS \`${r.name}\` */;`, 'DELIMITER ;;', this.routineCreateSql(r) + ' ;;', 'DELIMITER ;');
+      }
+      out.push('');
     }
     for (const v of Object.values(ctx.meta.views)) {
       if (opts.tables && !opts.tables.map(lc).includes(v.name)) continue;
@@ -2955,3 +3025,21 @@ export function sqlLiteral(v, col) {
   if (typeof v === 'number') return displayValue(v, col && col.zerofill ? { ...col, zerofill: false } : col);
   return mysqlString(v);
 }
+
+/** Hata iletisi için: f( ... ) çağrısındaki argüman sayısı */
+function argCount(toks, name, expected) {
+  const counts = [];
+  toks.forEach((t0, i) => {
+    if (!(t0.t === 'id' && lc(t0.v) === lc(name) && toks[i + 1]?.v === '(')) return;
+    let depth = 0;
+    let n = 0;
+    for (let k = i + 2; k < toks.length; k++) {
+      const t = toks[k];
+      if (t.t === 'op' && t.v === '(') depth++;
+      else if (t.t === 'op' && t.v === ')') { if (depth === 0) { counts.push(n + (k > i + 2 ? 1 : 0)); return; } depth--; } else if (t.t === 'op' && t.v === ',' && depth === 0) n++;
+    }
+  });
+  return counts.find((c) => c !== expected) ?? counts[0] ?? 0;
+}
+
+installRoutines(Session, MySqlServer, { err, MySqlError, dq, sq, lc, sig, Parser, syntaxError, isIntType, isTextType });

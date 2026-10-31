@@ -174,5 +174,109 @@ eq(one("ALTER TABLE odunc DROP PRIMARY KEY, ADD PRIMARY KEY (odunc_id)").ok, tru
 eq(one("ALTER TABLE odunc DROP PRIMARY KEY, ADD PRIMARY KEY (odunc_id, kitap_id)").ok, true, 'PK genişlet');
 eq(one("INSERT INTO odunc (odunc_id, ogrenci_no, kitap_id) VALUES (1, 9, 9)").message, "Error Code: 1062. Duplicate entry '1' for key 'odunc.PRIMARY'", 'bileşik PK tekrar');
 eq(one("CREATE TABLE yanlis (a INT, b INT AUTO_INCREMENT, PRIMARY KEY (a, b))").error?.code, 1075, 'AI ilk sütun değil (MySQL 1075)');
+
+// ---- saklı yordamlar, fonksiyonlar, tetikleyiciler
+const all = (sql) => run(sql);
+eq(all(`CREATE DATABASE sp; USE sp;
+CREATE TABLE ogr (id INT AUTO_INCREMENT PRIMARY KEY, ad VARCHAR(30) NOT NULL, puan INT, sinif VARCHAR(5));
+INSERT INTO ogr (ad, puan, sinif) VALUES ('Ali', 70, '10A'), ('Ayşe', 90, '10A'), ('Veli', 45, '10B');
+DELIMITER //
+CREATE PROCEDURE liste(IN p_sinif VARCHAR(5))
+BEGIN
+  SELECT ad, puan FROM ogr WHERE sinif = p_sinif ORDER BY puan DESC;
+END //
+CREATE PROCEDURE ort(IN p_sinif VARCHAR(5), OUT p_ort DECIMAL(5,2))
+BEGIN
+  SELECT AVG(puan) INTO p_ort FROM ogr WHERE sinif = p_sinif;
+END //
+DELIMITER ;`).every((r) => r.ok), true, 'CREATE PROCEDURE (DELIMITER)');
+const call = run("CALL liste('10A')");
+eq(call.length, 2, 'CALL: sonuç kümesi + durum');
+eq(call[0].rows, [['Ayşe', 90], ['Ali', 70]], 'CALL sonuç kümesi');
+eq(call[0].columns.map((c) => c.name), ['ad', 'puan'], 'CALL sütunlar');
+run("CALL ort('10A', @o)");
+eq(rows('SELECT @o'), [['80']], 'OUT parametresi');
+eq(one('CALL liste()').error?.code, 1318, 'yanlış argüman sayısı 1318');
+eq(one('CALL yok()').error?.code, 1305, 'olmayan yordam 1305');
+eq(one("CREATE PROCEDURE liste() SELECT 1").error?.code, 1304, 'var olan yordam 1304');
+eq(one("CREATE FUNCTION f(x INT) RETURNS INT RETURN x").error?.code, 1418, 'DETERMINISTIC olmayan fonksiyon 1418');
+eq(one(`CREATE FUNCTION harf(p INT) RETURNS VARCHAR(2) DETERMINISTIC
+BEGIN
+  DECLARE h VARCHAR(2);
+  IF p >= 85 THEN SET h = 'A'; ELSEIF p >= 70 THEN SET h = 'B'; ELSE SET h = 'F'; END IF;
+  RETURN h;
+END`).ok, true, 'CREATE FUNCTION (DELIMITER olmadan)');
+eq(rows('SELECT ad, harf(puan) FROM ogr ORDER BY id'), [['Ali', 'B'], ['Ayşe', 'A'], ['Veli', 'F']], 'fonksiyon sorguda');
+eq(one('SELECT harf(1, 2)').error?.code, 1318, 'fonksiyon argüman sayısı');
+eq(one(`CREATE PROCEDURE dongu() BEGIN DECLARE i INT DEFAULT 0; DECLARE t INT DEFAULT 0;
+  d: WHILE i < 10 DO SET i = i + 1; IF i = 3 THEN ITERATE d; END IF; IF i = 8 THEN LEAVE d; END IF; SET t = t + i; END WHILE d;
+  SELECT i, t; END`).ok, true, 'WHILE/ITERATE/LEAVE');
+eq(run('CALL dongu()')[0].rows, [[8, 25]], 'döngü sonucu');
+eq(run('CALL dongu()')[0].columns.map((c) => c.name), ['i', 't'], 'yerel değişken sütun adı');
+eq(one(`CREATE PROCEDURE imlec() BEGIN
+  DECLARE bitti INT DEFAULT 0; DECLARE v VARCHAR(30); DECLARE l TEXT DEFAULT '';
+  DECLARE c CURSOR FOR SELECT ad FROM ogr ORDER BY id;
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET bitti = 1;
+  OPEN c; oku: LOOP FETCH c INTO v; IF bitti THEN LEAVE oku; END IF; SET l = CONCAT(l, v, ';'); END LOOP; CLOSE c;
+  SELECT l; END`).ok, true, 'imleç + NOT FOUND');
+eq(run('CALL imlec()')[0].rows, [['Ali;Ayşe;Veli;']], 'imleç sonucu');
+eq(one(`CREATE PROCEDURE ekle(IN a VARCHAR(30), IN p INT) BEGIN
+  IF p NOT BETWEEN 0 AND 100 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Puan 0-100 olmalı'; END IF;
+  INSERT INTO ogr (ad, puan, sinif) VALUES (a, p, '11A'); END`).ok, true, 'SIGNAL yordamı');
+eq(one("CALL ekle('Can', 150)").message, 'Error Code: 1644. Puan 0-100 olmalı', 'SIGNAL 1644');
+eq(one("CALL ekle('Can', 50)").affected, 1, 'yordam INSERT');
+eq(one(`CREATE PROCEDURE yakala() BEGIN DECLARE EXIT HANDLER FOR SQLEXCEPTION
+  BEGIN GET DIAGNOSTICS CONDITION 1 @m = MESSAGE_TEXT; SELECT 'yakalandı' AS d, @m AS m; END;
+  INSERT INTO yok VALUES (1); SELECT 'gelmez'; END`).ok, true, 'EXIT HANDLER');
+eq(run('CALL yakala()')[0].rows, [['yakalandı', "Table 'sp.yok' doesn't exist"]], 'hata yakalandı');
+eq(one('CREATE PROCEDURE r() BEGIN RETURN 1; END').error?.code, 1313, 'yordamda RETURN 1313');
+eq(one('CREATE PROCEDURE durum(p INT) BEGIN CASE p WHEN 1 THEN SELECT 1; END CASE; END').ok, true, 'CASE ifadesi');
+eq(one('CALL durum(2)').error?.code, 1339, 'CASE bulunamadı 1339');
+eq(rows("SHOW PROCEDURE STATUS WHERE Db = 'sp'").length, 7, 'SHOW PROCEDURE STATUS');
+ok(/PROCEDURE `ort`\(IN p_sinif VARCHAR\(5\), OUT p_ort DECIMAL\(5,2\)\)/.test(rows('SHOW CREATE PROCEDURE ort')[0][2]), 'SHOW CREATE PROCEDURE');
+eq(one('DROP PROCEDURE durum').ok, true, 'DROP PROCEDURE');
+eq(one('DROP PROCEDURE durum').error?.code, 1305, 'DROP PROCEDURE yok');
+eq(one('DROP PROCEDURE IF EXISTS durum').ok, true, 'DROP PROCEDURE IF EXISTS');
+// tetikleyiciler
+eq(all(`CREATE TABLE urun (id INT AUTO_INCREMENT PRIMARY KEY, ad VARCHAR(30), stok INT NOT NULL DEFAULT 0, fiyat DECIMAL(8,2));
+CREATE TABLE satis (id INT AUTO_INCREMENT PRIMARY KEY, urun_id INT, adet INT, tutar DECIMAL(10,2));
+CREATE TABLE log (id INT AUTO_INCREMENT PRIMARY KEY, mesaj VARCHAR(200));
+INSERT INTO urun (ad, stok, fiyat) VALUES ('Kalem', 10, 5.50), ('Defter', 3, 20);
+DELIMITER $$
+CREATE TRIGGER satis_once BEFORE INSERT ON satis FOR EACH ROW
+BEGIN
+  DECLARE mevcut INT;
+  SELECT stok INTO mevcut FROM urun WHERE id = NEW.urun_id;
+  IF mevcut < NEW.adet THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Yetersiz stok';
+  END IF;
+  SET NEW.tutar = NEW.adet * (SELECT fiyat FROM urun WHERE id = NEW.urun_id);
+END$$
+CREATE TRIGGER satis_sonra AFTER INSERT ON satis FOR EACH ROW
+BEGIN
+  UPDATE urun SET stok = stok - NEW.adet WHERE id = NEW.urun_id;
+  INSERT INTO log (mesaj) VALUES (CONCAT('Satış ', NEW.urun_id, ' tutar ', NEW.tutar));
+END$$
+DELIMITER ;`).every((r) => r.ok), true, 'CREATE TRIGGER');
+eq(one('INSERT INTO satis (urun_id, adet) VALUES (1, 4)').affected, 1, 'tetikleyicili INSERT');
+eq(one('INSERT INTO satis (urun_id, adet) VALUES (2, 5)').message, 'Error Code: 1644. Yetersiz stok', 'tetikleyici SIGNAL');
+eq(rows('SELECT tutar FROM satis'), [['22.00']], 'SET NEW');
+eq(rows('SELECT stok FROM urun ORDER BY id'), [['6'], ['3']], 'AFTER tetikleyici UPDATE');
+eq(rows('SELECT mesaj FROM log'), [['Satış 1 tutar 22']], 'AFTER tetikleyici NEW (BEFORE sonrası)');
+eq(one('CREATE TRIGGER satis_sonra AFTER INSERT ON satis FOR EACH ROW SET @x = 1').error?.code, 1359, 'tetikleyici var 1359');
+eq(one('CREATE TRIGGER t2 AFTER INSERT ON satis FOR EACH ROW SET NEW.adet = 1').error?.code, 1362, 'AFTER içinde SET NEW 1362');
+eq(one('CREATE TRIGGER t3 AFTER INSERT ON satis FOR EACH ROW SET @x = OLD.adet').error?.code, 1363, 'INSERT tetikleyicisinde OLD 1363');
+eq(one('CREATE TRIGGER t4 AFTER INSERT ON log FOR EACH ROW SELECT 1').error?.code, 1415, 'tetikleyicide sonuç kümesi 1415');
+eq(one('ALTER TABLE satis ADD COLUMN notu VARCHAR(20)').ok, true, 'tetikleyicili tabloyu değiştir');
+eq(one('INSERT INTO satis (urun_id, adet) VALUES (1, 1)').ok, true, 'ALTER sonrası tetikleyici');
+eq(rows('SELECT stok FROM urun WHERE id = 1'), [['5']], 'ALTER sonrası tetikleyici çalıştı');
+eq(rows('SHOW TRIGGERS').map((r) => [r[0], r[1], r[2], r[4]]), [['satis_once', 'INSERT', 'satis', 'BEFORE'], ['satis_sonra', 'INSERT', 'satis', 'AFTER']], 'SHOW TRIGGERS');
+eq(one('TRUNCATE TABLE satis').ok, true, 'TRUNCATE');
+eq(one('DROP TRIGGER satis_once').ok, true, 'DROP TRIGGER');
+eq(one('DROP TRIGGER satis_once').error?.code, 1360, 'DROP TRIGGER yok 1360');
+eq(one('SELECT 5 INTO @b').ok, true, 'SELECT INTO @değişken');
+eq(rows('SELECT @b'), [['5']], 'SELECT INTO değeri');
+const dmp = s.dump('sp', { routines: true });
+ok(/TRIGGER `satis_sonra` AFTER INSERT ON `satis`/.test(dmp) && /CREATE DEFINER=`root`@`localhost` FUNCTION `harf`/.test(dmp), 'dump: tetikleyici + yordamlar');
 console.log(`${count - fails}/${count} başarılı`);
 process.exit(fails ? 1 : 0);

@@ -154,6 +154,7 @@ export function splitStatements(src) {
   const out = [];
   let cur = [];
   let delim = ';';
+  const state = { depth: 0, caseDepth: 0, routine: false };
   const flush = (end) => {
     const sig = cur.filter((t) => t.t !== 'ws' && t.t !== 'cmt');
     if (sig.length) {
@@ -177,19 +178,56 @@ export function splitStatements(src) {
         continue;
       }
     }
-    if (delim === ';' ? t.t === 'op' && t.v === ';' : src.startsWith(delim, t.s) && t.t !== 'str' && t.t !== 'qid' && t.t !== 'cmt') {
+    // END$$ gibi sınırlayıcının bir belirtecin sonuna yapıştığı durum
+    if (delim !== ';' && (t.t === 'id' || t.t === 'op') && t.v.length > delim.length) {
+      const ix = t.v.indexOf(delim);
+      if (ix > 0) {
+        const head = t.v.slice(0, ix);
+        cur.push({ ...t, v: head, e: t.s + ix, u: head.toUpperCase() });
+        flush(t.s + ix + delim.length);
+        continue;
+      }
+    }
+    // CREATE PROCEDURE/FUNCTION/TRIGGER gövdesindeki BEGIN ... END içindeki ; komutu bitirmez
+    if (t.t === 'id' && delim === ';') trackCompound(t, toks, k, cur, state);
+    if (delim === ';' ? t.t === 'op' && t.v === ';' && state.depth === 0 : src.startsWith(delim, t.s) && t.t !== 'str' && t.t !== 'qid' && t.t !== 'cmt') {
       if (delim !== ';' && delim.length > t.v.length) {
         // çok karakterli sınırlayıcı ($$): kalan parçaları atla
         let len = t.v.length;
         while (len < delim.length && k + 1 < toks.length) { k++; len += toks[k].v.length; }
       }
       flush(t.e);
+      state.depth = 0;
+      state.caseDepth = 0;
+      state.routine = false;
       continue;
     }
     cur.push(t);
   }
   flush(src.length);
   return out;
+}
+
+const nextSig = (toks, k) => { for (let i = k + 1; i < toks.length; i++) if (toks[i].t !== 'ws' && toks[i].t !== 'cmt') return toks[i]; return null; };
+
+/** Bileşik gövde (BEGIN ... END) derinliğini izler */
+function trackCompound(t, toks, k, cur, state) {
+  if (!state.routine) {
+    // komut başı: CREATE [OR REPLACE] [DEFINER=...] PROCEDURE|FUNCTION|TRIGGER|EVENT
+    const sig = cur.filter((x) => x.t !== 'ws' && x.t !== 'cmt');
+    if (sig.length && sig[0].t === 'id' && sig[0].u === 'CREATE' && /^(PROCEDURE|FUNCTION|TRIGGER|EVENT)$/.test(t.u)) state.routine = true;
+    return;
+  }
+  const n = nextSig(toks, k);
+  if (t.u === 'BEGIN') state.depth++;
+  else if (t.u === 'CASE' && state.prevU !== 'END') state.caseDepth++;
+  else if (t.u === 'END') {
+    const nu = n && n.t === 'id' ? n.u : '';
+    if (nu === 'CASE') state.caseDepth = Math.max(0, state.caseDepth - 1);
+    else if (/^(IF|WHILE|LOOP|REPEAT)$/.test(nu)) { /* blok sonu */ } else if (state.caseDepth > 0) state.caseDepth--;
+    else state.depth = Math.max(0, state.depth - 1);
+  }
+  state.prevU = t.u;
 }
 
 /** Belirtilen konumdaki (imleç) komutu bulur. */
