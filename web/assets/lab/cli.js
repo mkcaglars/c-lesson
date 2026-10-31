@@ -83,6 +83,7 @@ export function openMysqlCli(lab) {
     const gEnd = /\\[gG]\s*$/.test(buffer);
     const ends = gEnd || (delim === ';' ? /;\s*$/.test(buffer) && !splitStatements(buffer).pending : buffer.trimEnd().endsWith(delim));
     if (!ends) { prompt.textContent = '    -> '; return; }
+    const vertical = /\\G\s*$/.test(buffer);
     const text = head + buffer.replace(/\\[gG]\s*$/, delim);
     buffer = '';
     prompt.textContent = 'mysql> ';
@@ -92,7 +93,10 @@ export function openMysqlCli(lab) {
       if (!r.ok) { print(`ERROR ${r.error.code} (${r.error.state}): ${r.error.message}`); continue; }
       if (r.rows) {
         if (!r.rows.length) print(`Empty set ${secs(r.ms)}\n`);
-        else print(asciiTable(r.columns, r.rows) + `\n${r.rows.length} row${r.rows.length > 1 ? 's' : ''} in set ${secs(r.ms)}\n`);
+        else if (vertical) {
+          const w = Math.max(...r.columns.map((c) => c.name.length));
+          print(r.rows.map((row, i) => `${'*'.repeat(27)} ${i + 1}. row ${'*'.repeat(27)}\n` + r.columns.map((c, k) => `${c.name.padStart(w)}: ${row[k] == null ? 'NULL' : displayValue(row[k], c)}`).join('\n')).join('\n') + `\n${r.rows.length} row${r.rows.length > 1 ? 's' : ''} in set ${secs(r.ms)}\n`);
+        } else print(asciiTable(r.columns, r.rows) + `\n${r.rows.length} row${r.rows.length > 1 ? 's' : ''} in set ${secs(r.ms)}\n`);
       } else if (r.useDb) print('Database changed');
       else print(`Query OK, ${r.affected} row${r.affected === 1 ? '' : 's'} affected ${secs(r.ms)}` + (r.info ? '\n' + r.info.replace('Rows matched', 'Rows matched') : '') + '\n');
      }

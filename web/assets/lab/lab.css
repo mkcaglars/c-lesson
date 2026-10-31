@@ -570,3 +570,12 @@ select.lab-input { padding: 1px 4px; }
 .wb-te-trg-head { display: flex; align-items: center; justify-content: space-between; background: #eef1f5; padding: 3px 6px; font-weight: 600; font-size: 12px; }
 .wb-te-trg-item { display: flex; justify-content: space-between; align-items: center; padding: 3px 8px; font-size: 12px; cursor: default; }
 .wb-te-trg-item:hover { background: #e5effa; }
+
+/* Workbench: Form Editor */
+.wb-tool.wb-mode.on { background: #dfe8f5; border-color: #9fb6d6; }
+.wb-form-ed { padding: 8px 12px; }
+.wb-form-nav { display: flex; gap: 6px; align-items: center; margin-bottom: 10px; }
+.wb-form-nav .lab-btn { min-width: 30px; padding: 0 8px; }
+.wb-form-fields { display: grid; grid-template-columns: max-content minmax(160px, 420px) max-content; gap: 6px 10px; align-items: center; }
+.wb-form-fields label { text-align: right; font-weight: 600; }
+.wb-form-fields input.null::placeholder { color: #999; font-style: italic; }

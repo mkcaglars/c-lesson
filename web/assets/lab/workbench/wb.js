@@ -8,7 +8,7 @@ import { RoutineEditor } from './routineeditor.js';
 import { openAdminPage } from './admin.js';
 import { typeText } from '../mysql/engine.js';
 import { applyScriptWizard } from './review.js';
-import { reverseEngineer, synchronizeModel } from './eer.js';
+import { reverseEngineer, synchronizeModel, newModel, forwardEngineer } from './eer.js';
 import { defaultConnection } from '../store.js';
 
 const bq = (s) => '`' + String(s).replace(/`/g, '``') + '`';
@@ -267,6 +267,7 @@ export class WbConnection {
     const m = (label, items) => menuButton(label, items);
     const menubar = h('div', { class: 'lab-menubar wb-menubar' },
       m('File', () => [
+        ['New Model\tCtrl+N', () => newModel(this)],
         ['New Query Tab\tCtrl+T', () => this.openQuery({})],
         ['Open SQL Script...\tCtrl+Shift+O', () => this.queryTab()?.openFile() || this.openQuery({}).openFile()],
         ['Save Script\tCtrl+S', () => this.queryTab()?.save(), { disabled: !this.queryTab() }],
@@ -308,7 +309,7 @@ export class WbConnection {
         ['Manage Connections...', () => this.wb.editConnection(this.conn)],
         null,
         ['Reverse Engineer...\tCtrl+R', () => reverseEngineer(this)],
-        ['Forward Engineer...\tCtrl+G', null, { disabled: true }],
+        ['Forward Engineer...\tCtrl+G', () => forwardEngineer(this), { disabled: !this.tabs.some((t) => t.eerDb) }],
         ['Synchronize Model...\tCtrl+Shift+Z', () => synchronizeModel(this), { disabled: !this.tabs.some((t) => t.eerDb) }],
       ]),
       m('Server', () => [

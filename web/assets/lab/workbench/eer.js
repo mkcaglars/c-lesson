@@ -577,6 +577,75 @@ export async function synchronizeModel(conn, model) {
   return ok;
 }
 
+/** File > New Model: boş model (Workbench varsayılanı "mydb") */
+export async function newModel(conn) {
+  const srv = conn.lab.server;
+  let name = 'mydb';
+  for (let i = 1; srv.hasDb(name) || conn.tabs.some((t) => t.eerDb === name); i++) name = 'mydb' + i;
+  const input = h('input', { class: 'lab-input', value: name, spellcheck: 'false' });
+  const r = await conn.desk.message({ title: 'New Model', text: 'Modelin şema (veritabanı) adı:', extra: h('div', { style: { marginTop: '8px' } }, input, h('div', { class: 'muted small' }, 'Tabloları diyagramda "Place a New Table" aracıyla ekleyin; ilişkileri 1:1 / 1:n araçlarıyla çizin. Sonra Database > Forward Engineer... ile veritabanını oluşturun.')), icon: null, buttons: [{ text: 'OK', value: 'ok', primary: true }, { text: 'Cancel', value: null }], owner: conn.win });
+  if (r !== 'ok') return;
+  const db = lc(input.value.trim());
+  if (!/^[\p{L}\p{N}_$]{1,64}$/u.test(db)) { await conn.desk.message({ title: 'New Model', text: `Geçersiz şema adı: '${input.value}'`, icon: 'error', owner: conn.win }); return; }
+  const store = conn.lab.store;
+  store.state.models ??= {};
+  const model = { db, pos: {}, rels: [], tables: {}, dropped: [], created: Date.now(), isNew: true };
+  store.state.models[db] = model;
+  store.touch();
+  openEer(conn, model);
+}
+
+/** Database > Forward Engineer: modelden veritabanı oluşturma betiği */
+export async function forwardEngineer(conn, model) {
+  if (!model) {
+    const tab = conn.tabs.find((t) => t.eerDb);
+    if (!tab) { await conn.desk.message({ title: 'Forward Engineer', text: 'Açık bir model yok. Önce File > New Model ya da Database > Reverse Engineer... ile bir model açın.', icon: 'info', owner: conn.win }); return false; }
+    model = tab.model;
+  }
+  ensureTables(conn, model);
+  if (!Object.keys(model.tables).length) { await conn.desk.message({ title: 'Forward Engineer', text: 'Modelde tablo yok. Diyagrama "Place a New Table" aracıyla tablo ekleyin.', icon: 'warning', owner: conn.win }); return false; }
+  let dropFirst = false;
+  const build = () => {
+    const empty = { meta: { tables: {} } };
+    const fresh = { ...model, tables: Object.fromEntries(Object.entries(model.tables).map(([k, t]) => [k, { ...t, orig: null, columns: t.columns.map((c) => ({ ...c, orig: null })) }])), dropped: [] };
+    const body = syncScript(empty, fresh);
+    const drops = dropFirst ? Object.values(model.tables).map((t) => `DROP TABLE IF EXISTS ${bq(model.db)}.${bq(t.name)};`).join('\n') + '\n' : '';
+    return `-- MySQL Workbench Forward Engineering\n\nSET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0;\nSET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0;\n\n-- -----------------------------------------------------\n-- Schema ${model.db}\n-- -----------------------------------------------------\nCREATE SCHEMA IF NOT EXISTS ${bq(model.db)} DEFAULT CHARACTER SET utf8mb4 ;\nUSE ${bq(model.db)} ;\n\n${drops}${body}\n\nSET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS;\nSET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS;\n`;
+  };
+  let sql = build();
+  return wizard(conn, 'Forward Engineer to Database', [
+    { title: 'Connection Options', render(el) { el.append(h('div', {}, 'Set Parameters for Connecting to a DBMS'), h('div', { class: 'wb-form-row' }, h('label', {}, 'Stored Connection:'), h('select', { class: 'lab-input' }, h('option', {}, conn.conn.name))), h('div', { class: 'wb-form-row' }, h('label', {}, 'Hostname:'), h('span', {}, conn.conn.host), h('label', {}, 'Port:'), h('span', {}, String(conn.conn.port))), h('div', { class: 'wb-form-row' }, h('label', {}, 'Username:'), h('span', {}, conn.conn.user))); } },
+    {
+      title: 'Options',
+      render(el) {
+        const cb = h('input', { type: 'checkbox', checked: dropFirst });
+        cb.onchange = () => { dropFirst = cb.checked; };
+        el.append(h('div', {}, 'Set Options for Database to be Created:'), h('label', { class: 'wb-te-colrow' }, cb, ' DROP objects before each CREATE object'),
+          h('label', { class: 'wb-te-colrow' }, h('input', { type: 'checkbox', disabled: true }), ' Generate DROP SCHEMA'), h('label', { class: 'wb-te-colrow' }, h('input', { type: 'checkbox', disabled: true }), ' Generate INSERT statements for tables'));
+      },
+    },
+    { title: 'Select Objects', render(el) { const n = Object.keys(model.tables).length; el.append(h('div', {}, 'Select Objects to Forward Engineer:'), h('label', { class: 'wb-te-colrow' }, h('input', { type: 'checkbox', checked: true, disabled: true }), ` Export MySQL Table Objects — ${n} Total Objects, ${n} Selected`)); } },
+    { title: 'Review SQL Script', render(el) { sql = build(); const ta = h('textarea', { class: 'wb-wiz-sql', readonly: true }); ta.value = sql; el.append(h('div', {}, 'Review the SQL Script to be Executed'), ta); }, finishText: 'Next >' },
+  ], async () => {
+    const res = conn.session.execute(sql, { stopOnError: true });
+    let failed = null;
+    for (const r of res) {
+      conn.output(r.ok, r.sql.replace(/\s+/g, ' '), r.message, r.ms);
+      conn.lab.events.emit('query', { sql: r.sql, result: r, session: conn.session, connection: conn.conn });
+      if (!r.ok) failed = r;
+    }
+    conn.refreshTree();
+    if (failed) { await conn.desk.message({ title: 'Forward Engineer', text: `ERROR ${failed.error.code}: ${failed.error.message}`, detail: failed.sql, icon: 'error', owner: conn.win }); return false; }
+    for (const t of Object.values(model.tables)) { t.orig = t.name; for (const col of t.columns) col.orig = col.name; }
+    model.dropped = [];
+    delete model.isNew;
+    conn.lab.store.touch();
+    await conn.desk.message({ title: 'Forward Engineer', text: 'Forward Engineer Finished Successfully', icon: 'info', owner: conn.win });
+    conn.lab.events.emit('eer-forward', { db: model.db });
+    return true;
+  });
+}
+
 function sameFk(f, r) {
   return lc(f.refTable) === lc(r.parent) && f.cols.length === r.childCols.length && f.cols.every((c, i) => lc(c) === lc(r.childCols[i])) && f.refCols.every((c, i) => lc(c) === lc(r.parentCols[i]));
 }

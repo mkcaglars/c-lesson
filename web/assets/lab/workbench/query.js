@@ -223,7 +223,10 @@ export class ResultGrid {
         h('button', { class: 'wb-tool', title: 'Insert new row', html: ICONS.tableNew, onclick: () => this.addRow() }),
         h('button', { class: 'wb-tool', title: 'Delete selected rows', html: ICONS.rollback, onclick: () => this.deleteSelected() })) : h('span', { class: 'wb-grid-ro', title: 'Sonuç kümesi düzenlenemez: tek bir tablodan, birincil anahtar sütununu da içeren bir SELECT olmalıdır.' }, 'Read Only'),
       h('span', { class: 'wb-sep' }),
-      h('button', { class: 'wb-tool', title: 'Export recordset to an external file (CSV)', html: ICONS.save, onclick: () => this.exportCsv() }));
+      h('button', { class: 'wb-tool', title: 'Export recordset to an external file', html: ICONS.save, onclick: (e) => this.exportMenu(e) }),
+      h('div', { class: 'spacer' }),
+      h('button', { class: 'wb-tool wb-mode' + (this.mode !== 'form' ? ' on' : ''), title: 'Result Grid', html: ICONS.grid, onclick: () => { this.mode = 'grid'; this.render(); } }),
+      h('button', { class: 'wb-tool wb-mode' + (this.mode === 'form' ? ' on' : ''), title: 'Form Editor', html: ICONS.wrench, onclick: () => { this.mode = 'form'; this.render(); } }));
     this.table = h('table', { class: 'wb-grid' });
     const head = h('tr', {}, h('th', { class: 'wb-grid-rh' }), ...cols.map((c) => h('th', { title: c.table ? `${c.table}.${c.column} (${c.type})` : c.type }, c.name)));
     this.table.appendChild(h('thead', {}, head));
@@ -231,12 +234,105 @@ export class ResultGrid {
     this.table.appendChild(this.tbody);
     this.foot = h('div', { class: 'wb-grid-foot' }, h('span', { class: 'wb-grid-count' }), h('div', { class: 'spacer' }), this.edit ? this.applyBtn : null, this.edit ? this.revertBtn : null);
     this.el.innerHTML = '';
+    if (this.mode === 'form') {
+      this.formHost = h('div', { class: 'wb-grid-scroll wb-form-ed' });
+      this.el.append(tools, this.formHost, this.foot);
+      this.renderForm();
+      this.renderBody(true);
+      return;
+    }
     this.el.append(tools, h('div', { class: 'wb-grid-scroll' }, this.table), this.foot);
     this.renderBody();
   }
 
-  renderBody() {
+  /** Form Editor: tek kayıt, alan alan (Workbench sağdaki "Form Editor" görünümü) */
+  renderForm() {
     const cols = this.result.columns;
+    const list = this.rows.filter((r) => r.state !== 'deleted');
+    this.formIndex = Math.min(Math.max(0, this.formIndex ?? (this.rows.findIndex((r) => r.sel) >= 0 ? list.indexOf(this.rows.find((r) => r.sel)) : 0)), Math.max(0, list.length - 1));
+    const row = list[this.formIndex];
+    const go = (i) => { this.formIndex = i; this.renderForm(); };
+    const nav = h('div', { class: 'wb-form-nav' },
+      h('button', { class: 'lab-btn', disabled: !row || this.formIndex === 0, onclick: () => go(0) }, '⏮'),
+      h('button', { class: 'lab-btn', disabled: !row || this.formIndex === 0, onclick: () => go(this.formIndex - 1) }, '◀'),
+      h('span', {}, row ? `${this.formIndex + 1} / ${list.length}` : '0 / 0'),
+      h('button', { class: 'lab-btn', disabled: !row || this.formIndex >= list.length - 1, onclick: () => go(this.formIndex + 1) }, '▶'),
+      h('button', { class: 'lab-btn', disabled: !row || this.formIndex >= list.length - 1, onclick: () => go(list.length - 1) }, '⏭'),
+      this.edit ? h('button', { class: 'lab-btn', onclick: () => { this.addRow(); this.formIndex = this.rows.filter((r) => r.state !== 'deleted').length - 1; this.renderForm(); } }, 'Yeni kayıt') : null,
+      this.edit && row ? h('button', { class: 'lab-btn', onclick: () => { row.sel = true; this.deleteSelected(); this.renderForm(); } }, 'Sil') : null);
+    const grid = h('div', { class: 'wb-form-fields' });
+    if (row) {
+      cols.forEach((c, ci) => {
+        const v = row.vals[ci];
+        const inp = h('input', { class: 'lab-input' + (v == null ? ' null' : ''), value: v == null ? '' : displayValue(v, c), placeholder: v == null ? 'NULL' : '', readOnly: !this.edit });
+        inp.onchange = () => {
+          row.vals[ci] = inp.value === '' && !c.notNull ? null : inp.value;
+          if (row.state === 'same') row.state = 'mod';
+          this.renderBody(true);
+        };
+        grid.append(h('label', { title: c.table ? `${c.table}.${c.column}` : '' }, c.name + ':'), inp, h('span', { class: 'muted small' }, (c.type || '') + (c.len ? `(${c.len}${c.scale != null ? ',' + c.scale : ''})` : '')));
+      });
+    }
+    this.formHost.innerHTML = '';
+    this.formHost.append(nav, grid);
+  }
+
+  exportMenu(e) {
+    const formats = [
+      ['CSV', 'csv', 'CSV (*.csv)'], ['CSV (; separated)', 'csv', 'CSV (; separated) (*.csv)'], ['Tab separated', 'tsv', 'Tab separated (*.tsv)'],
+      ['HTML', 'html', 'HTML (*.html)'], ['JSON', 'json', 'JSON (*.json)'], ['XML', 'xml', 'XML (*.xml)'], ['SQL INSERT statements', 'sql', 'SQL INSERT statements (*.sql)'],
+    ];
+    showMenu(e.clientX, e.clientY, formats.map(([label, ext, fl]) => [label, () => this.exportAs(label, ext, fl)]));
+  }
+
+  formatResult(kind) {
+    const cols = this.result.columns;
+    const rows = this.rows.filter((r) => r.state !== 'new' && r.state !== 'deleted').map((r) => r.vals);
+    const disp = (v, i) => (v == null ? null : displayValue(v, cols[i]));
+    const xmlEsc = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const table = this.edit?.table || cols.find((c) => c.table)?.table || 'result';
+    switch (kind) {
+      case 'CSV':
+      case 'CSV (; separated)': {
+        const sep = kind === 'CSV' ? ',' : ';';
+        const esc = (v) => (v == null ? '' : new RegExp(`["\n${sep}]`).test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v));
+        return [cols.map((c) => esc(c.name)).join(sep), ...rows.map((r) => r.map((v, i) => esc(disp(v, i))).join(sep))].join('\r\n');
+      }
+      case 'Tab separated':
+        return [cols.map((c) => c.name).join('\t'), ...rows.map((r) => r.map((v, i) => (v == null ? 'NULL' : String(disp(v, i)).replace(/[\t\n]/g, ' '))).join('\t'))].join('\r\n');
+      case 'HTML':
+        return `<!DOCTYPE html>\n<html>\n<head>\n<meta charset="utf-8">\n<title>${xmlEsc(table)}</title>\n<style>table{border-collapse:collapse}th,td{border:1px solid #999;padding:3px 6px}th{background:#ddd}</style>\n</head>\n<body>\n<table>\n<tr>${cols.map((c) => `<th>${xmlEsc(c.name)}</th>`).join('')}</tr>\n${rows.map((r) => `<tr>${r.map((v, i) => `<td>${v == null ? 'NULL' : xmlEsc(disp(v, i))}</td>`).join('')}</tr>`).join('\n')}\n</table>\n</body>\n</html>\n`;
+      case 'JSON':
+        return JSON.stringify(rows.map((r) => Object.fromEntries(r.map((v, i) => [cols[i].name, v == null ? null : typeof v === 'number' && !['decimal'].includes(cols[i].type) ? v : disp(v, i)]))), null, 2);
+      case 'XML':
+        return `<?xml version="1.0" encoding="UTF-8"?>\n<DATA xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">\n${rows.map((r) => `  <ROW>\n${r.map((v, i) => (v == null ? `    <${cols[i].name} xsi:nil="true" />` : `    <${cols[i].name}>${xmlEsc(disp(v, i))}</${cols[i].name}>`)).join('\n')}\n  </ROW>`).join('\n')}\n</DATA>\n`;
+      default: {
+        const lit = (v, i) => (v == null ? 'NULL' : typeof v === 'number' ? disp(v, i) : `'${String(disp(v, i)).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`);
+        return rows.map((r) => `INSERT INTO \`${table}\` (${cols.map((c) => '`' + c.name + '`').join(',')}) VALUES (${r.map(lit).join(',')});`).join('\n') + '\n';
+      }
+    }
+  }
+
+  exportAs(kind, ext, filterLabel) {
+    const text = this.formatResult(kind);
+    this.conn.desk.fileDialog({ mode: 'save', name: (this.edit?.table || 'result') + '.' + ext, filter: [ext], filterLabel, owner: this.conn.win }).then((p) => {
+      if (!p) return;
+      this.conn.store.writeFile(p, text);
+      this.conn.lab.events.emit('result-export', { path: p, format: kind });
+      this.conn.desk.message({ title: 'Export Resultset', text: `Kaydedildi: ${p.replace(/\//g, '\\')}`, icon: 'info', owner: this.conn.win, buttons: ['OK', { text: 'Bilgisayarıma indir', value: 'dl' }] }).then((r) => { if (r === 'dl') downloadText(p.split('/').pop(), text); });
+    });
+  }
+
+  renderBody(countOnly = false) {
+    const cols = this.result.columns;
+    if (countOnly || this.mode === 'form') {
+      const n = this.rows.filter((r) => r.state !== 'new').length;
+      this.foot.querySelector('.wb-grid-count').textContent = `${cols.length} column(s), ${n} row(s)` + (this.result.limited ? ' (limited)' : '');
+      this.applyBtn.disabled = !this.changed;
+      this.revertBtn.disabled = !this.changed;
+      if (this.mode === 'form' && !countOnly) this.renderForm();
+      return;
+    }
     const q = this.filter.trim().toLocaleLowerCase('tr');
     this.tbody.innerHTML = '';
     this.rows.forEach((row, ri) => {
@@ -390,14 +486,6 @@ export class ResultGrid {
     }
   }
 
-  exportCsv() {
-    const cols = this.result.columns;
-    const esc = (v) => (v == null ? '' : /[",\n;]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v));
-    const text = [cols.map((c) => esc(c.name)).join(','), ...this.rows.filter((r) => r.state !== 'new').map((r) => r.vals.map((v, i) => esc(v == null ? null : displayValue(v, cols[i]))).join(','))].join('\r\n');
-    this.conn.desk.fileDialog({ mode: 'save', name: (this.edit?.table || 'result') + '.csv', filter: ['csv'], filterLabel: 'CSV (*.csv)', owner: this.conn.win }).then((p) => {
-      if (!p) return;
-      this.conn.store.writeFile(p, text);
-      this.conn.desk.message({ title: 'Export Resultset', text: `Kaydedildi: ${p.replace(/\//g, '\\')}`, icon: 'info', owner: this.conn.win, buttons: ['OK', { text: 'Bilgisayarıma indir', value: 'dl' }] }).then((r) => { if (r === 'dl') downloadText(p.split('/').pop(), text); });
-    });
-  }
+  exportCsv() { this.exportAs('CSV', 'csv', 'CSV (*.csv)'); }
+
 }

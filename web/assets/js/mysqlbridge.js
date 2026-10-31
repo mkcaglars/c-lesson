@@ -76,6 +76,8 @@ function bindParams(sql, params) {
     const t = toks[i];
     if (t.t === 'var' && !t.v.startsWith('@@')) {
       const name = t.v.slice(1).replace(/[`'"]/g, '').toLowerCase();
+      // CommandType.StoredProcedure için bağlayıcının kullandığı iç oturum değişkenleri
+      if (name.startsWith('_cnet_') && !map.has(name)) { out += t.v; continue; }
       if (!map.has(name)) throw Object.assign(new Error(`Parameter '${t.v}' must be defined.`), { code: 0 });
       out += literal(map.get(name));
       continue;
