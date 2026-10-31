@@ -134,6 +134,12 @@ export function sqlCall(op, json) {
       return '{}';
     }
     if (!s) return JSON.stringify({ error: { code: 0, message: 'Connection must be valid and open.', kind: 'invalid' } });
+    if (op === 'schema') {
+      const ctx = s.db ? server.getDb(s.db) : null;
+      const m = ctx?.meta.tables[String(a.table || '').toLowerCase()];
+      if (!m) return JSON.stringify({ pk: [], fks: [] });
+      return JSON.stringify({ pk: m.pk, fks: m.fks.map((f) => ({ name: f.name, cols: f.cols, refTable: f.refTable, refCols: f.refCols })) });
+    }
     if (op === 'use') {
       s.use(a.db);
       return '{}';

@@ -55,13 +55,37 @@ export function generateModel(ide, model) {
   const ns = ide.data.namespace;
   const files = [];
   const entities = [];
-  for (const t of model.tables) {
+  const included = new Set(model.tables.filter((t) => ctx.meta.tables[t]));
+  for (const t of included) {
     const m = ctx.meta.tables[t];
-    if (!m) continue;
     const pk = new Set(m.pk.map((x) => x.toLowerCase()));
     const cls = entityName(m.name, model.pluralize);
     const props = m.columns.filter((c) => model.fk !== false || !m.fks.some((f) => f.cols.some((x) => x.toLowerCase() === c.name.toLowerCase())));
-    entities.push({ table: m.name, cls, set: setName(m.name, model.pluralize), meta: m, props });
+    // gezinme özellikleri: başvurulan tablo (tekil) ve bu tabloya başvuran tablolar (koleksiyon)
+    const used = new Set([cls.toLowerCase(), ...props.map((c) => c.name.toLowerCase())]);
+    const uniq = (base) => { let n = base; let k = 1; while (used.has(n.toLowerCase())) n = base + k++; used.add(n.toLowerCase()); return n; };
+    const refs = m.fks.filter((f) => included.has(f.refTable.toLowerCase())).map((f) => ({ type: entityName(f.refTable.toLowerCase(), model.pluralize), name: uniq(entityName(f.refTable.toLowerCase(), model.pluralize)), fk: f }));
+    const colls = [];
+    for (const ct of included) {
+      for (const f of ctx.meta.tables[ct].fks) {
+        if (f.refTable.toLowerCase() !== m.name) continue;
+        const ccls = entityName(ct, model.pluralize);
+        colls.push({ type: ccls, name: uniq(setName(ct, model.pluralize)), fk: f });
+      }
+    }
+    entities.push({ table: m.name, cls, set: setName(m.name, model.pluralize), meta: m, props, refs, colls });
+    const ctor = colls.length ? `        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Usage", "CA2214:DoNotCallOverridableMethodsInConstructors")]
+        public ${ident(cls)}()
+        {
+${colls.map((c) => `            this.${ident(c.name)} = new HashSet<${ident(c.type)}>();`).join('\n')}
+        }
+    
+` : '';
+    const navLines = [
+      ...refs.map((r) => `        public virtual ${ident(r.type)} ${ident(r.name)} { get; set; }`),
+      ...colls.map((c) => `        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Usage", "CA2227:CollectionPropertiesShouldBeReadOnly")]
+        public virtual ICollection<${ident(c.type)}> ${ident(c.name)} { get; set; }`),
+    ];
     files.push({
       name: `${cls}.cs`,
       content: `${HEADER}
@@ -69,11 +93,11 @@ namespace ${ns}
 {
     using System;
     using System.Collections.Generic;
-
+    
     public partial class ${ident(cls)}
     {
-${props.map((c) => `        public ${clrType(c, pk.has(c.name.toLowerCase()))} ${ident(c.name)} { get; set; }`).join('\n')}
-    }
+${ctor}${props.map((c) => `        public ${clrType(c, pk.has(c.name.toLowerCase()))} ${ident(c.name)} { get; set; }`).join('\n')}
+${navLines.length ? '    \n' + navLines.join('\n') + '\n' : ''}    }
 }
 `,
     });
@@ -422,8 +446,12 @@ export function renderEdmx(ide, fileName, container) {
       h('div', { class: 'edmx-head' }, entityName(m.name, model.pluralize)),
       h('div', { class: 'edmx-sec' }, 'Properties'),
       ...m.columns.map((c) => h('div', { class: 'edmx-prop' }, h('span', {}, pk.has(c.name.toLowerCase()) ? '🔑' : '▪'), ' ', c.name)),
-      m.fks.length ? h('div', { class: 'edmx-sec' }, 'Navigation Properties') : null,
-      ...m.fks.map((f) => h('div', { class: 'edmx-prop muted' }, '↗ ', f.refTable)));
+      ...(() => {
+        const refs = m.fks.filter((f) => model.tables.includes(f.refTable.toLowerCase())).map((f) => entityName(f.refTable.toLowerCase(), model.pluralize));
+        const colls = model.tables.filter((t2) => ctx.meta.tables[t2]?.fks.some((f) => f.refTable.toLowerCase() === m.name)).map((t2) => setName(t2, model.pluralize));
+        if (!refs.length && !colls.length) return [];
+        return [h('div', { class: 'edmx-sec' }, 'Navigation Properties'), ...refs.map((r) => h('div', { class: 'edmx-prop' }, '↗ ', r)), ...colls.map((c) => h('div', { class: 'edmx-prop' }, '⇉ ', c))];
+      })());
     canvas.appendChild(box);
     x += 220;
     if (x > 800) { x = 20; y += 260; }

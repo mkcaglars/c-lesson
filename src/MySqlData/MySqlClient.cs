@@ -147,6 +147,14 @@ namespace MySql.Data.MySqlClient
         public static void ClearPool(MySqlConnection connection) { }
         public static void ClearAllPools() { }
         public bool Ping() => state == ConnectionState.Open;
+
+        /// <summary>Tablonun birincil ve yabancı anahtarlarını JSON olarak döndürür (Entity Framework için).</summary>
+        [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+        public string GetTableSchema(string table)
+        {
+            EnsureOpen();
+            return Bridge.Call("schema", new { id, table }).GetRawText();
+        }
     }
 
     public sealed class MySqlTransaction : DbTransaction
