@@ -545,3 +545,4 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; }
 .progress-fill { height: 100%; background: var(--success); }
 .zip-opt { display: flex; gap: 10px; align-items: flex-start; padding: 8px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
 .zip-opt:hover { background: var(--panel-2); }
+.page-head-btns { display: flex; gap: 10px; flex-wrap: wrap; }

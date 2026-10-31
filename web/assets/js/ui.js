@@ -116,3 +116,12 @@ export function download(filename, bytes, type = 'application/octet-stream') {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
+
+/** İndirilen dosya adı: Türkçe harfler ASCII'ye çevrilir (tüm tarayıcılarda doğru ad) */
+export function asciiFileName(name) {
+  const map = { ç: 'c', Ç: 'C', ğ: 'g', Ğ: 'G', ı: 'i', İ: 'I', ö: 'o', Ö: 'O', ş: 's', Ş: 'S', ü: 'u', Ü: 'U' };
+  const s = String(name || 'Proje').replace(/[çÇğĞıİöÖşŞüÜ]/g, (c) => map[c])
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9 ._-]+/g, '_').trim();
+  return s || 'Proje';
+}

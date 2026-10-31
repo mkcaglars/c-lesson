@@ -1,6 +1,6 @@
 // Geliştirme ortamı: kod editörü, form tasarımcısı, çözüm gezgini, özellikler, hata listesi, çalıştırma.
 import { api, formatDate } from './api.js';
-import { h, modal, toast, confirmBox, promptBox, download } from './ui.js';
+import { h, modal, toast, confirmBox, promptBox, download, asciiFileName } from './ui.js';
 import { CodeEditor } from './editor.js';
 import { FormDesigner, FORM } from './designer.js';
 import { PropertyGrid } from './props.js';
@@ -1394,13 +1394,6 @@ export function turkishMessage(type, message) {
 }
 
 /** İndirme adı: bazı tarayıcılar Türkçe karakterli adları "download" yapar. */
-function asciiFileName(name) {
-  const map = { ç: 'c', Ç: 'C', ğ: 'g', Ğ: 'G', ı: 'i', İ: 'I', ö: 'o', Ö: 'O', ş: 's', Ş: 'S', ü: 'u', Ü: 'U' };
-  const s = String(name || 'Proje').replace(/[çÇğĞıİöÖşŞüÜ]/g, (c) => map[c])
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^A-Za-z0-9 ._-]+/g, '_').trim();
-  return s || 'Proje';
-}
 
 /** Sık görülen hataları öğrencinin anlayacağı dille açıklar. */
 function explainException(type) {

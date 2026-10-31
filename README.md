@@ -30,6 +30,7 @@ Derslerde kullanmak için web üzerinde çalışan bir **C# Windows Forms** geli
 - Tüm projeleri açma, çalıştırma ve test etme (salt okunur, öğrencinin projesi bozulmaz)
 - Öğrenciye proje notu yazma; "Kopyasını al" ile kendi alanına kopyalama
 - **Sınıfa gönder:** hazırladığı projeyi seçtiği sınıftaki öğrencilerin (hepsine ya da seçtiklerine) not ile birlikte kopyalama; aynı adlı projesi olan öğrenci atlanır
+- **Proje yükle / JSON indir:** Projelerim sayfasında *⬆ Proje yükle* ile bilgisayardaki `.json` proje dosyaları (bir ya da birden çok) yüklenip açılır; proje kartındaki *JSON indir* ile proje aynı biçimde kaydedilir. Veritabanından (phpMyAdmin) dışa aktarılan `projects` tablosu JSON'u da kabul edilir
 
 **Desteklenen kontroller:** Form, Button, Label, LinkLabel, TextBox, MaskedTextBox, RichTextBox, CheckBox, RadioButton, ComboBox, ListBox, CheckedListBox, GroupBox, Panel, TabControl, PictureBox, NumericUpDown, DateTimePicker, ProgressBar, TrackBar, DataGridView, MenuStrip, ToolStrip, StatusStrip, ContextMenuStrip, BindingNavigator, Timer, ToolTip, ErrorProvider, BindingSource, OpenFileDialog, SaveFileDialog, MessageBox, `Interaction.InputBox`.
 
