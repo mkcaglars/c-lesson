@@ -166,5 +166,13 @@ eq(rows("SELECT * FROM v_personel ORDER BY maas"), [['Ahmet Y.', '12500.00']], '
 eq(rows("SELECT COUNT(*) FROM personel WHERE departman <> 'insan kaynaklari'"), [['2']], 'aksan duyarsız <>');
 eq(one("UPDATE personel SET departman = 'Bilgi Teknolojileri' WHERE departman = 'bilişim teknolojileri'").affected, 1, 'SET ataması bozulmadı');
 eq(one("UPDATE `sirketdb`.`personel` SET `maas` = '9600' WHERE (`personel_id` = '1');").affected, 1, 'Workbench güncellemesi (sayı sütunu = metin)');
+// AUTO_INCREMENT + çok sütunlu birincil anahtar (Workbench'te tanımlayıcı ilişki)
+eq(one("CREATE TABLE odunc (odunc_id INT NOT NULL AUTO_INCREMENT, ogrenci_no INT NOT NULL, kitap_id INT NOT NULL, PRIMARY KEY (odunc_id, ogrenci_no, kitap_id))").ok, true, 'AI + bileşik PK');
+eq(one("INSERT INTO odunc (ogrenci_no, kitap_id) VALUES (5, 7), (6, 8)").insertId, 2, 'AI bileşik PK ekleme');
+eq(rows("DESCRIBE odunc").map((r) => r[3]), ['PRI', 'PRI', 'PRI'], 'bileşik PK describe');
+eq(one("ALTER TABLE odunc DROP PRIMARY KEY, ADD PRIMARY KEY (odunc_id)").ok, true, 'PK daralt');
+eq(one("ALTER TABLE odunc DROP PRIMARY KEY, ADD PRIMARY KEY (odunc_id, kitap_id)").ok, true, 'PK genişlet');
+eq(one("INSERT INTO odunc (odunc_id, ogrenci_no, kitap_id) VALUES (1, 9, 9)").message, "Error Code: 1062. Duplicate entry '1' for key 'odunc.PRIMARY'", 'bileşik PK tekrar');
+eq(one("CREATE TABLE yanlis (a INT, b INT AUTO_INCREMENT, PRIMARY KEY (a, b))").error?.code, 1075, 'AI ilk sütun değil (MySQL 1075)');
 console.log(`${count - fails}/${count} başarılı`);
 process.exit(fails ? 1 : 0);

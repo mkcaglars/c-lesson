@@ -556,3 +556,7 @@ select.lab-input { padding: 1px 4px; }
 .eer-editor { border-top: 2px solid #c8c8c8; background: #f7f7f7; max-height: 220px; overflow: auto; }
 .eer-ed-head { display: flex; align-items: center; padding: 4px 10px; background: #e2e2e2; }
 .eer-ed-body { padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
+.eer-tool.dashed { text-decoration: underline dashed; }
+.eer-tool.solid { text-decoration: underline solid; }
+.eer-table.picked { outline: 2px solid #e48e00; }
+.eer-canvas.placing { cursor: crosshair; }

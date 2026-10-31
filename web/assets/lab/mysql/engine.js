@@ -1326,7 +1326,8 @@ export class Session {
     let key = 'PRIMARY';
     if (meta) {
       const same = (a) => a.length === names.length && a.every((x, i) => lc(x) === names[i]);
-      if (!same(meta.pk)) key = (meta.uniques.find((u) => same(u.cols)) || { name: names.join('_') }).name;
+      const inPk = names.every((n) => meta.pk.some((p) => lc(p) === n));
+      if (!same(meta.pk) && !inPk) key = (meta.uniques.find((u) => same(u.cols)) || { name: names.join('_') }).name;
     }
     let value = '?';
     const rows = this.insertTuples(c);
@@ -1383,7 +1384,7 @@ export class Session {
     const ctx = c.ctx;
     const target = lc(c.target || '');
     const meta = ctx?.meta.tables[target];
-    const fkText = (child, fk) => `(\`${ctx.name}\`.\`${child}\`, CONSTRAINT \`${fk.name}\` FOREIGN KEY (${fk.cols.map(bq).join(', ')}) REFERENCES \`${fk.refTable}\` (${fk.refCols.map(bq).join(', ')})${fk.onDelete ? ' ON DELETE ' + fk.onDelete : ''}${fk.onUpdate ? ' ON UPDATE ' + fk.onUpdate : ''})`;
+    const fkText = (child, fk) => `(\`${ctx.name}\`.\`${child}\`, CONSTRAINT \`${fk.name}\` FOREIGN KEY (${fk.cols.map(bq).join(', ')}) REFERENCES \`${fk.refTable}\` (${fk.refCols.map(bq).join(', ')})${fk.onDelete && !['NO ACTION', 'RESTRICT'].includes(fk.onDelete) ? ' ON DELETE ' + fk.onDelete : ''}${fk.onUpdate && !['NO ACTION', 'RESTRICT'].includes(fk.onUpdate) ? ' ON UPDATE ' + fk.onUpdate : ''})`;
     if (c.kind === 'DELETE' || (c.kind === 'UPDATE' && !this.updatesChildCols(c, meta))) {
       for (const m of Object.values(ctx.meta.tables)) {
         const fk = m.fks.find((f) => lc(f.refTable) === target);
@@ -1812,8 +1813,8 @@ export class Session {
     if (ai.length === 1) {
       const isKey = (meta.pk.length && lc(meta.pk[0]) === lc(ai[0].name)) || meta.uniques.some((u) => lc(u.cols[0]) === lc(ai[0].name)) || meta.indexes.some((u) => lc(u.cols[0]) === lc(ai[0].name));
       if (!isKey) throw err(1075, 'Incorrect table definition; there can be only one auto column and it must be defined as a key');
-      if (!(meta.pk.length === 1 && lc(meta.pk[0]) === lc(ai[0].name) && ai[0].type in INT_TYPES)) {
-        throw err(1235, 'Bu simülatörde AUTO_INCREMENT yalnızca tek sütunlu, tam sayı türündeki PRIMARY KEY için desteklenir.');
+      if (!(meta.pk.length >= 1 && lc(meta.pk[0]) === lc(ai[0].name) && ai[0].type in INT_TYPES)) {
+        throw err(1235, 'Bu simülatörde AUTO_INCREMENT sütunu, tam sayı türünde ve PRIMARY KEY\'in ilk sütunu olmalıdır.');
       }
     }
   }
@@ -1909,7 +1910,8 @@ export class Session {
       for (const [n, e] of checks) s += ` CONSTRAINT ${dq(n)} CHECK (${e})`;
       parts.push(s);
     }
-    if (meta.pk.length && !(singleAi && meta.pk.length === 1)) parts.push(`PRIMARY KEY (${meta.pk.map(dq).join(', ')})`);
+    // AUTO_INCREMENT sütunu SQLite'ta tek başına birincil anahtardır; çok sütunlu PK'nin tekilliği bundan gelir
+    if (meta.pk.length && !singleAi) parts.push(`PRIMARY KEY (${meta.pk.map(dq).join(', ')})`);
     for (const fk of meta.fks) {
       let s = `CONSTRAINT ${dq(fk.name)} FOREIGN KEY (${fk.cols.map(dq).join(', ')}) REFERENCES ${dq(lc(fk.refTable))} (${fk.refCols.map(dq).join(', ')})`;
       if (fk.onDelete && fk.onDelete !== 'NO ACTION') s += ' ON DELETE ' + fk.onDelete;
