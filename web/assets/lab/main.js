@@ -9,6 +9,7 @@ import { openSettings, openServices } from './apps.js';
 import { openMysqlCli } from './cli.js';
 import { openBrowser, openInstallerFile } from './installer.js';
 import { TaskPanel } from './tasks.js';
+import { runInstalledApp } from './runapp.js';
 
 const app = document.getElementById('app');
 
@@ -109,7 +110,12 @@ function registerApps(lab) {
   desk.register('downloads', { label: 'İndirilenler', icon: ICONS.folder, desktop: false, start: false, open: () => openExplorer(desk, DOWNLOADS) });
   desk.register('notepad', { label: 'Not Defteri', icon: ICONS.notepad, start: true, opens: ['txt', 'ini', 'cnf', 'log'], open: () => openNotepad(desk, null), openFile: (p) => openNotepad(desk, p) });
   desk.register('browser', { label: 'İnternet Tarayıcısı', icon: ICONS.browser, desktop: true, start: true, open: () => openBrowser(lab) });
-  desk.register('installer', { label: 'MySQL Installer - Community', icon: ICONS.installer, start: true, desktop: false, opens: ['msi', 'exe'], visible: () => inst().products.length > 0 && store.state.mode === 'book', open: () => openInstallerFile(lab, null), openFile: (p) => openInstallerFile(lab, p) });
+  desk.register('app', { label: 'Uygulama', icon: ICONS.app, opens: ['exe'], openFile: (p) => {
+    const c = String(store.readFile(p) || '');
+    if (c.startsWith('SETUPEXE:') || c.startsWith('MSI:')) openInstallerFile(lab, p);
+    else runInstalledApp(lab, p);
+  } });
+  desk.register('installer', { label: 'MySQL Installer - Community', icon: ICONS.installer, start: true, desktop: false, opens: ['msi'], visible: () => inst().products.length > 0 && store.state.mode === 'book', open: () => openInstallerFile(lab, null), openFile: (p) => openInstallerFile(lab, p) });
   desk.register('sqlfile', { label: 'SQL', icon: ICONS.sqlfile, opens: ['sql'], openFile: (p) => {
     if (inst().workbench) {
       const wb = openWorkbench(lab);

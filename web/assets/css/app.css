@@ -525,3 +525,24 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; }
 .edmx-sec { padding: 3px 8px; color: var(--muted); font-size: 11px; background: #f3f5fa; }
 .edmx-prop { padding: 1px 10px; }
 .edmx-foot { padding: 6px 10px; border-top: 1px solid var(--border); }
+
+/* ------------------------------------------------------------------ Setup projesi */
+.su { display: grid; grid-template-columns: 230px 1fr 300px; flex: 1; min-height: 360px; border-bottom: 1px solid var(--border); }
+.su-tree { border-right: 1px solid var(--border); padding: 6px; background: var(--panel-2); }
+.su-node { padding: 4px 8px 4px 22px; border-radius: 4px; cursor: pointer; border: 1px dashed transparent; }
+.su-node.root { padding-left: 4px; cursor: default; font-weight: 600; }
+.su-node.sel { background: var(--primary-soft); color: var(--primary); }
+.su-node.drop { border-color: var(--primary); background: #eef4ff; }
+.su-list { overflow: auto; }
+.su-row { display: grid; grid-template-columns: 1fr 100px; padding: 4px 10px; border-bottom: 1px solid #f0f2f6; cursor: default; }
+.su-row.head { color: var(--muted); font-size: 12px; background: var(--panel-2); }
+.su-row:not(.head):hover { background: #f5f7fb; }
+.su-row.sel { background: var(--primary-soft); }
+.su-empty { padding: 14px; }
+.su-props { border-left: 1px solid var(--border); overflow: auto; padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; }
+.su-ph { font-weight: 700; color: #1e4e8c; margin-bottom: 4px; }
+.su-prop { display: grid; grid-template-columns: 130px 1fr; gap: 6px; align-items: center; font-size: 12px; }
+.su-prop .input { height: 26px; padding: 2px 6px; font-size: 12px; }
+.su-icon-prev { width: 48px; height: 48px; object-fit: contain; margin-top: 6px; }
+.progress { height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; margin: 8px 0; }
+.progress-fill { height: 100%; background: var(--success); }

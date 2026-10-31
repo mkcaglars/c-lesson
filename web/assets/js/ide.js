@@ -15,6 +15,7 @@ import { generateDataSet, designerFileName, databaseXml, databaseSql, dataFileNa
 import { referenceManager, nugetManager, DEFAULT_REFS } from './packages.js';
 import { ensureMysql } from './mysqlbridge.js';
 import { addNewItem, renderEdmx, generateModel, efAppConfig } from './efwizard.js';
+import { manageExtensions, addSetupProject, renderSetup } from './setupproject.js';
 
 const SAVE_DELAY = 1500;
 const CHECK_DELAY = 700;
@@ -290,6 +291,9 @@ export class Ide {
       h('div', { class: 'ide-dd-sep' }),
       item('App.config ekle / aç', () => this.addAppConfig()),
       h('div', { class: 'ide-dd-sep' }),
+      item('Extensions > Manage Extensions...', () => manageExtensions(this)),
+      item('Add > New Project... (Setup Project)', () => addSetupProject(this)),
+      h('div', { class: 'ide-dd-sep' }),
       item('Laboratuvarı aç (MySQL, Workbench)', () => window.open('lab.html', '_blank')));
     document.body.appendChild(menu);
     setTimeout(() => document.addEventListener('mousedown', function off(e) { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('mousedown', off); } }), 0);
@@ -416,6 +420,14 @@ export class Ide {
     return new Set((this.data?.efModels || []).flatMap((m) => m.generated || []));
   }
 
+  openSetup() {
+    const s = this.data.setup;
+    if (!s) return;
+    const key = this.tabKey('setup', s.name);
+    if (!this.tabs.find((t) => t.key === key)) this.tabs.push({ key, kind: 'setup', name: s.name, title: `File System (${s.name})` });
+    this.activate(key);
+  }
+
   openEdmx(name) {
     const key = this.tabKey('edmx', name);
     if (!this.tabs.find((t) => t.key === key)) this.tabs.push({ key, kind: 'edmx', name, title: `${name} [Diagram]` });
@@ -498,13 +510,16 @@ export class Ide {
     this.docEmpty.classList.toggle('hidden', !!tab);
     this.docEditor.classList.toggle('hidden', tab?.kind !== 'code');
     this.docDesigner.classList.toggle('hidden', tab?.kind !== 'design');
-    this.docData.classList.toggle('hidden', tab?.kind !== 'data' && tab?.kind !== 'edmx');
+    this.docData.classList.toggle('hidden', tab?.kind !== 'data' && tab?.kind !== 'edmx' && tab?.kind !== 'setup');
     this.toolbox.classList.toggle('disabled', tab?.kind !== 'design' || this.readonly);
     if (!tab) {
       this.props.clear();
       return;
     }
-    if (tab.kind === 'edmx') {
+    if (tab.kind === 'setup') {
+      renderSetup(this, this.docData);
+      this.props.clear('Setup projesi: dosyaları ve kısayolları File System düzenleyicisinde, ürün bilgilerini Properties ile ayarlayın.');
+    } else if (tab.kind === 'edmx') {
       renderEdmx(this, tab.name, this.docData);
       this.props.clear('Entity Data Model: tablolara karşılık gelen sınıflar. Değişiklik için "Update Model from Database".');
     } else if (tab.kind === 'data') {
@@ -610,6 +625,16 @@ export class Ide {
         });
       }
     }
+    this.renderSetupNode(item);
+  }
+
+  renderSetupNode(item) {
+    const st = this.data.setup;
+    if (!st) return;
+    item('tree-root', '\u{1F4E6}', st.name, { active: this.active?.kind === 'setup', click: () => this.openSetup(), title: 'Setup projesi (Visual Studio Installer Projects)' });
+    item('tree-child', '\u{1F4C1}', 'Detected Dependencies', { title: 'Programın çalışması için gereken dosyalar (otomatik)' });
+    for (const d of ['.NET Framework', ...(this.allReferences().includes('MySql.Data') ? ['MySql.Data.dll'] : []), ...(this.allReferences().includes('EntityFramework') ? ['EntityFramework.dll'] : [])]) item('tree-child2', '\u{25AB}', d, {});
+    item('tree-child', '\u{2699}', `Primary output from ${this.data.namespace} (Active)`, { title: 'Application Folder içindeki proje çıktısı', click: () => this.openSetup() });
   }
 
   renderToolbox() {

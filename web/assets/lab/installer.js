@@ -468,13 +468,84 @@ INSERT INTO film (title, release_year, length, rating) VALUES ('ACADEMY DINOSAUR
 // ---------------------------------------------------------------- dosyayı çalıştır
 
 export function openInstallerFile(lab, path) {
-  const content = path ? lab.store.readFile(path) : 'MSI:installer80';
+  let content = path ? lab.store.readFile(path) : 'MSI:installer80';
+  if (String(content).startsWith('SETUPEXE:')) {
+    const msi = content.slice(9);
+    content = lab.store.readFile(msi);
+    if (!content) { lab.desk.message({ title: 'Windows Installer', text: `This installation package could not be opened. Verify that the package exists and that you can access it.\n\n${msi.replace(/\//g, '\\')}`, icon: 'error' }); return null; }
+  }
+  if (String(content).startsWith('APPSETUP:')) return appSetup(lab, JSON.parse(content.slice(9)));
   const kind = String(content || '').replace(/^MSI:/, '');
   if (kind === 'installer80') return mysqlInstaller80(lab);
   if (kind === 'server84') return msi84(lab);
   if (kind === 'workbench') return workbenchMsi(lab);
   lab.desk.message({ title: 'Windows Installer', text: 'Bu yükleme paketi açılamadı.', icon: 'error' });
   return null;
+}
+
+// ---------------------------------------------------------------- öğrencinin Setup projesi (.msi)
+
+function appSetup(lab, pkg) {
+  const { store, desk } = lab;
+  const d = { dir: `C:\\Program Files (x86)\\${pkg.manufacturer}\\${pkg.product}\\`, everyone: !!pkg.allUsers };
+  return new Wizard(lab, {
+    title: pkg.product, width: 560, height: 430, className: 'msi', icon: ICONS.installer,
+    pages: [
+      { title: `Welcome to the ${pkg.product} Setup Wizard`, render(el) { el.append(h('div', {}, `The installer will guide you through the steps required to install ${pkg.product} on your computer.`), h('div', { class: 'muted small' }, 'WARNING: This computer program is protected by copyright law and international treaties. Unauthorized duplication or distribution of this program, or any portion of it, may result in severe civil or criminal penalties, and will be prosecuted to the maximum extent possible under the law.')); } },
+      {
+        title: 'Select Installation Folder',
+        render(el) {
+          const dir = h('input', { class: 'lab-input', value: d.dir, style: { width: '100%' } });
+          dir.oninput = () => { d.dir = dir.value; };
+          const r = (v, t) => { const i = h('input', { type: 'radio', name: 'appeveryone', checked: d.everyone === v }); i.onchange = () => { d.everyone = v; }; return h('label', { class: 'inst-check' }, i, ' ', t); };
+          el.append(h('div', {}, 'The installer will install the program to the following folder. To install in this folder, click "Next". To install to a different folder, enter it below or click "Browse".'), h('div', {}, 'Folder:'), dir,
+            h('div', {}, `Install ${pkg.product} for yourself, or for anyone who uses this computer:`), r(true, 'Everyone'), r(false, 'Just me'));
+        },
+        next(wz) { if (!/^[a-z]:\\/i.test(d.dir.trim())) { wz.alert('Geçerli bir klasör yolu yazın (ör. C:\\Program Files (x86)\\...).'); return false; } return true; },
+      },
+      { title: 'Confirm Installation', render(el) { el.append(h('div', {}, `The installer is ready to install ${pkg.product} on your computer.`), h('div', {}, 'Click "Next" to start the installation.')); } },
+      {
+        title: `Installing ${pkg.product}`, noBack: true,
+        render(el, wz) {
+          const bar = h('div', { class: 'br-dl-prog big' }, h('div', { class: 'br-dl-fill' }));
+          el.append(h('div', {}, `${pkg.product} is being installed.`), h('div', {}, 'Please wait...'), bar);
+          wz.next.disabled = true;
+          let p = 0;
+          const t = setInterval(() => { p += 14; bar.firstChild.style.width = Math.min(100, p) + '%'; if (p >= 100) { clearInterval(t); wz.next.disabled = false; } }, 120);
+        },
+      },
+      { title: 'Installation Complete', nextText: 'Close', noBack: true, hideCancel: true, render(el) { el.append(h('div', {}, `${pkg.product} has been successfully installed.`), h('div', {}, 'Click "Close" to exit.'), h('div', { class: 'muted small' }, 'Please use Windows Update to check for any critical updates to the .NET Framework.')); } },
+    ],
+    onFinish: () => installApp(lab, pkg, d.dir),
+  });
+}
+
+function installApp(lab, pkg, winDir) {
+  const { store, desk } = lab;
+  const dir = winDir.trim().replace(/\\/g, '/').replace(/\/+$/, '');
+  const icons = Object.fromEntries((pkg.items || []).filter((x) => x.kind === 'file').map((x) => [x.name, x.content]));
+  const shortcutIcon = (pkg.items || []).find((x) => x.kind === 'shortcut' && x.icon)?.icon;
+  if (pkg.hasOutput) {
+    store.writeFile(`${dir}/${pkg.exe}`, 'APP:' + JSON.stringify({ product: pkg.product, asm: pkg.asm, pdb: pkg.pdb, dataFiles: pkg.dataFiles, iconData: shortcutIcon ? icons[shortcutIcon] : null }), 'exe');
+    if (pkg.config != null) store.writeFile(`${dir}/${pkg.exe}.config`, pkg.config);
+    for (const dll of pkg.deps || []) store.writeFile(`${dir}/${dll}`, 'DLL', 'dll');
+    for (const f of pkg.dataFiles || []) store.writeFile(`${dir}/${f.name}`, f.content);
+  }
+  for (const it of pkg.items || []) {
+    if (it.kind === 'file' && it.folder === 'app') store.writeFile(`${dir}/${it.name}`, it.content, 'image');
+    if (it.kind !== 'shortcut') continue;
+    const lnk = 'LNK:' + JSON.stringify({ target: `${dir}/${it.target}`, icon: it.icon ? icons[it.icon] : null });
+    if (it.folder === 'desktop') store.writeFile(`C:/Users/Ogrenci/Desktop/${it.name}.lnk`, lnk, 'lnk');
+    else if (it.folder === 'programs') {
+      store.state.programs = (store.state.programs || []).filter((p) => p.name !== it.name);
+      store.state.programs.push({ name: it.name, target: `${dir}/${it.target}`, icon: it.icon ? icons[it.icon] : null });
+    } else store.writeFile(`${dir}/${it.name}.lnk`, lnk, 'lnk');
+  }
+  store.state.installedApps = (store.state.installedApps || []).filter((a) => a.product !== pkg.product);
+  store.state.installedApps.push({ product: pkg.product, version: pkg.version, manufacturer: pkg.manufacturer, dir });
+  store.touch();
+  desk.renderIcons();
+  lab.events.emit('app-installed', { product: pkg.product, dir });
 }
 
 // ---------------------------------------------------------------- MySQL Installer 8.0 (kitap)

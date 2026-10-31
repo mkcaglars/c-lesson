@@ -517,3 +517,8 @@ select.lab-input { padding: 1px 4px; }
 .tt-test { font-size: 12px; white-space: pre-wrap; margin: 0; }
 .tt-matrix td.tt-full { background: #e3f6e8; color: #1e7a3b; font-weight: 700; }
 .tt-matrix td.tt-part { background: #fff6dc; }
+.lab-app-desk { flex: 1; position: relative; overflow: hidden; background: #e9edf3; }
+.lab-app-desk .wf-taskbar { display: none; }
+.lab-app-status { padding: 20px; color: #444; }
+.lab-icon-img img { width: 40px; height: 40px; object-fit: contain; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
+.lab-start-ico img { width: 24px; height: 24px; object-fit: contain; }

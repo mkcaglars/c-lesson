@@ -58,8 +58,14 @@ export class Desktop {
       this.iconsEl.appendChild(el);
     };
     for (const [, a] of this.apps) if (a.desktop && (!a.visible || a.visible())) add(a.label, a.icon, () => a.open(), a.title);
-    // Masaüstündeki dosyalar
-    for (const f of this.store.list(DESKTOP).files) add(f.name, fileIcon(f.name), () => this.openFile(f.path));
+    // Masaüstündeki dosyalar (kısayollar .lnk uzantısız ve kendi simgesiyle görünür)
+    for (const f of this.store.list(DESKTOP).files) {
+      if (/\.lnk$/i.test(f.name)) {
+        let info = {};
+        try { info = JSON.parse(String(f.content).slice(4)); } catch { /* yok */ }
+        add(f.name.replace(/\.lnk$/i, ''), info.icon ? `<img src="${info.icon}" alt="">` : ICONS.app, () => this.openFile(f.path));
+      } else add(f.name, fileIcon(f.name), () => this.openFile(f.path));
+    }
   }
 
   toggleStart() {
@@ -71,6 +77,10 @@ export class Desktop {
     for (const [, a] of items) {
       list.appendChild(h('button', { class: 'lab-start-item', onclick: () => { m.classList.add('hidden'); a.open(); } }, h('span', { class: 'lab-start-ico', html: a.icon }), h('span', {}, a.label)));
     }
+    // Setup ile kurulan programlar
+    for (const p of this.store.state.programs || []) {
+      list.appendChild(h('button', { class: 'lab-start-item', onclick: () => { m.classList.add('hidden'); this.openFile(p.target); } }, h('span', { class: 'lab-start-ico', html: p.icon ? `<img src="${p.icon}" alt="">` : ICONS.app }), h('span', {}, p.name)));
+    }
     m.append(h('div', { class: 'lab-start-head' }, 'Tüm uygulamalar'), list,
       h('div', { class: 'lab-start-foot' }, h('span', { class: 'lab-start-user' }, '\u{1F464} ' + (this.store.user?.name || 'Öğrenci'))));
     m.classList.remove('hidden');
@@ -78,6 +88,13 @@ export class Desktop {
 
   /** Dosyayı türüne göre açar */
   openFile(path) {
+    if (/\.lnk$/i.test(path)) {
+      try {
+        const info = JSON.parse(String(this.store.readFile(path)).slice(4));
+        if (!this.store.exists(info.target)) { this.message({ title: 'Problem with Shortcut', text: `The item '${info.target.split('/').pop()}' that this shortcut refers to has been changed or moved, so this shortcut will no longer work properly.`, icon: 'warning' }); return; }
+        path = info.target;
+      } catch { return; }
+    }
     const name = path.split('/').pop();
     const ext = name.split('.').pop().toLowerCase();
     const handler = [...this.apps.values()].find((a) => a.opens && a.opens.includes(ext));
@@ -363,7 +380,10 @@ export class Win {
 export function fileIcon(name) {
   const ext = name.split('.').pop().toLowerCase();
   if (ext === 'sql') return ICONS.sqlfile;
-  if (ext === 'msi' || ext === 'exe') return ICONS.installer;
+  if (ext === 'msi' || name.toLowerCase() === 'setup.exe') return ICONS.installer;
+  if (ext === 'exe') return ICONS.app;
+  if (ext === 'lnk') return ICONS.app;
+  if (/^(ico|png|jpe?g|gif|bmp)$/.test(ext)) return ICONS.file;
   if (ext === 'txt' || ext === 'cnf' || ext === 'ini' || ext === 'log') return ICONS.textfile;
   return ICONS.file;
 }

@@ -101,7 +101,10 @@ export class LabStore {
           if (r.state) {
             Object.assign(this.state.install, r.state.install || {});
             if (r.state.server) this.server.importState(r.state.server);
+            // başka sekmede eklenen dosyalar (ör. Stüdyo'nun ürettiği setup.exe)
+            for (const [p, f] of Object.entries(r.state.files || {})) if (!this.state.files[p] || this.state.files[p].mtime < f.mtime) this.state.files[p] = f;
             this.emit({ type: 'reload', dbs: [] });
+            this.emit({ type: 'files' });
           }
         } catch (e) { console.error(e); }
       }
@@ -113,6 +116,8 @@ export class LabStore {
     const r = await api.labState();
     if (r.state) this.state = Object.assign(defaultState(), r.state, { install: Object.assign(defaultState().install, r.state.install || {}) });
     this.state.prefs = Object.assign(defaultState().prefs, this.state.prefs || {});
+    // Eski sürümde PHP boş nesneleri diziye çeviriyordu: düzelt
+    for (const k of ['files', 'queryTabs', 'seen']) if (!this.state[k] || Array.isArray(this.state[k])) this.state[k] = {};
     if (this.state.server) this.server.importState(this.state.server);
     const list = r.databases || [];
     const loaded = await Promise.all(list.map((d) => api.labDatabase(d.name).then((x) => x, () => null)));
@@ -195,6 +200,17 @@ export class LabStore {
       if (e.status !== 413) this.schedule(10000);
       throw e;
     }
+  }
+
+  /** Başka bir sayfadan (Stüdyo) laboratuvar dosyası yazar: sunucudaki güncel durum alınır, dosyalar eklenir. */
+  async mergeFiles(files) {
+    const r = await api.labState();
+    const st = r.state || defaultState();
+    if (!st.files || Array.isArray(st.files)) st.files = {};
+    for (const [p, f] of Object.entries(files)) st.files[this.norm(p)] = { content: f.content, mtime: Date.now(), kind: f.kind || 'text' };
+    await api.saveLabState(st);
+    Object.assign(this.state.files, st.files);
+    if (this.channel) this.channel.postMessage({ type: 'state', from: this.instance });
   }
 
   // ---- sanal dosya sistemi

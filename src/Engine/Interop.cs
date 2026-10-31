@@ -46,6 +46,30 @@ namespace CLesson.Engine
         [JSExport]
         public static void Stop() => ProgramRunner.Stop();
 
+        /// <summary>Son derlemenin çıktısı (Setup projesi için): {"asm":base64,"pdb":base64}</summary>
+        [JSExport]
+        public static string LastBuildOutput()
+        {
+            if (lastBuild == null || !lastBuild.Success) return "";
+            return JsonSerializer.Serialize(new { asm = Convert.ToBase64String(lastBuild.Assembly), pdb = lastBuild.Pdb != null ? Convert.ToBase64String(lastBuild.Pdb) : null });
+        }
+
+        /// <summary>Daha önce derlenmiş (ör. kurulmuş) bir programı çalıştırır. dataFilesJson: [{name,content}]</summary>
+        [JSExport]
+        public static string RunAssembly(string assemblyBase64, string pdbBase64, string dataFilesJson)
+        {
+            try
+            {
+                var files = string.IsNullOrEmpty(dataFilesJson) ? new List<ProjectFile>() : JsonSerializer.Deserialize<List<ProjectFile>>(dataFilesJson);
+                ProgramRunner.Run(Convert.FromBase64String(assemblyBase64), string.IsNullOrEmpty(pdbBase64) ? null : Convert.FromBase64String(pdbBase64), files);
+                return "";
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
+            }
+        }
+
         [JSExport]
         public static string Dispatch(int id, string evt, string data) => Ui.Dispatch(id, evt, data);
 

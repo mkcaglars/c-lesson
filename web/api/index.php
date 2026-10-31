@@ -19,6 +19,15 @@ function fail(string $message, int $status = 400, array $extra = []): never
     out(['error' => $message] + $extra, $status);
 }
 
+/** İstek gövdesindeki bir alanı JSON olarak, boş nesneler ({}) korunarak yeniden kodlar. */
+function raw_json_field(string $name): ?string
+{
+    $o = json_decode(file_get_contents('php://input') ?: '');
+    if (!is_object($o) || !property_exists($o, $name)) return null;
+    $json = json_encode($o->$name, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    return $json === false ? null : $json;
+}
+
 function body(int $max = 0): array
 {
     $raw = file_get_contents('php://input') ?: '';
@@ -100,7 +109,7 @@ function lab_task_out(array $t): array
         'title' => $t['title'],
         'sinif' => $t['sinif'],
         'active' => (bool)(int)$t['active'],
-        'data' => json_decode($t['data'], true),
+        'data' => json_decode($t['data']),
         'author' => $t['author_name'] ?? null,
         'updated_at' => $t['updated_at'],
     ];
@@ -277,7 +286,7 @@ try {
             $dbs = $pdo->prepare('SELECT name, size, updated_at FROM lab_databases WHERE user_id = ? ORDER BY name');
             $dbs->execute([$u['id']]);
             out([
-                'state' => $row ? json_decode($row['data'], true) : null,
+                'state' => $row ? json_decode($row['data']) : null,
                 'version' => $row ? (int)$row['version'] : 0,
                 'databases' => array_map(fn($d) => ['name' => $d['name'], 'size' => (int)$d['size'], 'updated_at' => $d['updated_at']], $dbs->fetchAll()),
             ]);
@@ -286,7 +295,7 @@ try {
         case $route === 'lab/state' && $method === 'PUT': {
             $b = body(1000000);
             if (!is_array($b['state'] ?? null)) fail('Durum verisi eksik.');
-            $json = json_encode($b['state'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $json = raw_json_field('state');
             if ($json === false || strlen($json) > 900000) fail('Laboratuvar durumu çok büyük.', 413);
             $now = now_str();
             $up = $pdo->prepare('UPDATE lab_state SET data = ?, version = version + 1, updated_at = ? WHERE user_id = ?');
@@ -391,7 +400,7 @@ try {
             $pr = $pdo->prepare('SELECT task_key, data, done, updated_at FROM lab_progress WHERE user_id = ?');
             $pr->execute([$u['id']]);
             $progress = [];
-            foreach ($pr->fetchAll() as $r) $progress[$r['task_key']] = ['data' => json_decode($r['data'], true), 'done' => (bool)(int)$r['done'], 'updated_at' => $r['updated_at']];
+            foreach ($pr->fetchAll() as $r) $progress[$r['task_key']] = ['data' => json_decode($r['data']), 'done' => (bool)(int)$r['done'], 'updated_at' => $r['updated_at']];
             out(['tasks' => $tasks, 'progress' => $progress]);
         }
 
@@ -415,7 +424,7 @@ try {
             $title = mb_substr(trim((string)($b['title'] ?? '')), 0, 150);
             if ($title === '') fail('Görev başlığı boş olamaz.');
             if (!is_array($b['data'] ?? null)) fail('Görev adımları eksik.');
-            $json = json_encode($b['data'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $json = raw_json_field('data');
             if (strlen($json) > 500000) fail('Görev çok büyük.', 413);
             $sinif = mb_substr(trim((string)($b['sinif'] ?? '')), 0, 50);
             $active = !array_key_exists('active', $b) || !empty($b['active']) ? 1 : 0;
@@ -433,7 +442,7 @@ try {
             $key = $parts[2];
             if (!preg_match('/^[a-z0-9_.:-]{1,64}$/i', $key)) fail('Geçersiz görev.');
             $b = body(200000);
-            $json = json_encode($b['data'] ?? new stdClass(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $json = raw_json_field('data') ?? '{}';
             $done = !empty($b['done']) ? 1 : 0;
             $now = now_str();
             $up = $pdo->prepare('UPDATE lab_progress SET data = ?, done = ?, updated_at = ? WHERE user_id = ? AND task_key = ?');
@@ -462,7 +471,7 @@ try {
                 $pr = $pdo->prepare("SELECT user_id, task_key, data, done, updated_at FROM lab_progress WHERE user_id IN ($in)");
                 $pr->execute($ids);
                 foreach ($pr->fetchAll() as $r) {
-                    $progress[(int)$r['user_id']][$r['task_key']] = ['data' => json_decode($r['data'], true), 'done' => (bool)(int)$r['done'], 'updated_at' => $r['updated_at']];
+                    $progress[(int)$r['user_id']][$r['task_key']] = ['data' => json_decode($r['data']), 'done' => (bool)(int)$r['done'], 'updated_at' => $r['updated_at']];
                 }
             }
             out(['students' => array_map(fn($s) => user_public($s) + ['progress' => $progress[(int)$s['id']] ?? new stdClass()], $students)]);

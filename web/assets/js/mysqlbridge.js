@@ -24,6 +24,12 @@ export function ensureMysql(user) {
   return loading;
 }
 
+/** Laboratuvar sayfası: köprüyü laboratuvarın kendi sunucusuna bağlar */
+export function attachMysql(store) {
+  if (state?.store === store) return;
+  state = { store, server: store.server, sessions: new Map() };
+}
+
 export function mysqlReady() { return !!state; }
 export function mysqlStore() { return state?.store || null; }
 

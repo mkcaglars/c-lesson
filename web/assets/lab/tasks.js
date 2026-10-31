@@ -234,6 +234,7 @@ export class TaskPanel {
       const p = this.progress[t.key] ??= { data: { done: [], flags: [] }, done: false };
       p.data ??= { done: [], flags: [] };
       p.data.done ??= [];
+      if (!p.data.at || Array.isArray(p.data.at)) p.data.at = {};
       let advanced = false;
       for (const st of t.steps) {
         if (p.data.done.includes(st.id)) continue;
