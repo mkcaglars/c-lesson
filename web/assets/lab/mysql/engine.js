@@ -203,6 +203,10 @@ export class MySqlServer {
     this.clock = opts.clock || (() => new Date());
     this.running = true;
     this.port = 3306;
+    this.epoch = 1;
+    this.connId = 7;
+    this.sessions = new Set();
+    this.startedAt = Date.now();
     this.dbs = new Map();
     this.users = [{ user: 'root', host: 'localhost', password: opts.rootPassword ?? '', grants: [{ db: '*', table: '*', privs: ['ALL PRIVILEGES'], grantOption: true }] }];
     this.listeners = new Set();
@@ -340,6 +344,16 @@ export class MySqlServer {
     if (Array.isArray(st.users) && st.users.some((u) => u.user === 'root')) this.users = st.users;
   }
 
+  /** Hizmeti durdurur / başlatır (Windows hizmeti ya da Workbench Startup/Shutdown) */
+  setRunning(on) {
+    if (on === this.running) return;
+    this.running = on;
+    this.epoch++;
+    if (on) this.startedAt = Date.now();
+    this.sessions.clear();
+    this.emit({ type: 'running', running: on });
+  }
+
   setRootPassword(pw) {
     for (const u of this.users) if (u.user === 'root') u.password = pw;
   }
@@ -361,7 +375,12 @@ export class Session {
     this.txDbs = new Set();
     this.lastInsertId = 0;
     this.limitRows = 0; // Workbench "Limit to 1000 rows"
+    this.epoch = server.epoch; // sunucu yeniden başlatılınca eski bağlantılar kopar
+    this.id = ++server.connId;
+    server.sessions.add(this);
   }
+
+  close() { this.server.sessions.delete(this); }
 
   use(name) {
     const ctx = this.server.getDb(name);
@@ -395,6 +414,7 @@ export class Session {
     const res = { sql: st.sql, s: st.s, e: st.e, ok: true, affected: 0, message: '' };
     this.server.active = this;
     try {
+      if (!this.server.running || this.server.epoch !== this.epoch) throw new MySqlError(2013, 'Lost connection to MySQL server during query', 'HY000');
       const out = this.dispatch(src, st);
       Object.assign(res, out);
       if (res.rows && !res.message) res.message = `${res.rows.length} row(s) returned`;
@@ -775,7 +795,7 @@ export class Session {
       }
     }
     // Dizgi karşılaştırmaları: utf8mb4_0900_ai_ci gibi Türkçe harflerde de büyük/küçük harf ve aksan duyarsız
-    this.foldComparisons(toks, S, out, pre, post);
+    this.foldComparisons(toks, S, out, pre, post, ctx);
     // ORDER BY: MySQL harmanlamasına (Türkçe/aksan duyarsız) uygun sıralama anahtarı
     if (!opts.noOrderWrap) this.wrapOrderBy(toks, S, out, pre, post);
     if (opts.aliasSelect) this.aliasSelectList(toks, S, out, post, src);
@@ -784,8 +804,15 @@ export class Session {
     return { text, qualifiers, names };
   }
 
-  foldComparisons(toks, S, out, pre, post) {
+  foldComparisons(toks, S, out, pre, post, ctx) {
     const T = (j) => toks[S[j]];
+    // yalnızca metin türündeki sütunlar katlanır (sayısal sütunda '1' = 1 karşılaştırması bozulmasın)
+    const textCols = new Set();
+    const otherCols = new Set();
+    for (const m of Object.values(ctx?.meta.tables || {})) {
+      for (const c of m.columns) (isTextType(c.type) && c.type !== 'json' ? textCols : otherCols).add(lc(c.name));
+    }
+    const isText = (j) => { const t = T(j); const n = lc(t.t === 'qid' ? t.val : t.v); return textCols.has(n) && !otherCols.has(n); };
     let depth = 0;
     let assign = -1; // SET bölgesi (atamalar) içindeki derinlik
     const isRef = (j) => T(j) && (T(j).t === 'id' || T(j).t === 'qid') && !RESERVED.has(T(j).u) && !(T(j + 1) && T(j + 1).v === '(');
@@ -803,6 +830,7 @@ export class Session {
       // sol: ad veya t.ad ; sağ: dizgi (ya da tersi)
       let left = null;
       if (isRef(j - 1)) left = (j >= 3 && T(j - 2).v === '.' && isRef(j - 3)) ? j - 3 : j - 1;
+      if (left != null && !isText(j - 1)) left = null;
       if (left != null && b.t === 'str') {
         pre[S[left]] = 'm_sort(' + pre[S[left]];
         post[S[j - 1]] += ')';
@@ -810,6 +838,7 @@ export class Session {
         post[S[j + 1]] += ')';
       } else if (a.t === 'str' && isRef(j + 1)) {
         const right = T(j + 2) && T(j + 2).v === '.' && isRef(j + 3) ? j + 3 : j + 1;
+        if (!isText(right)) continue;
         pre[S[j - 1]] = 'm_sort(' + pre[S[j - 1]];
         post[S[j - 1]] += ')';
         pre[S[j + 1]] = 'm_sort(' + pre[S[j + 1]];
@@ -2307,7 +2336,6 @@ export class Session {
           break;
         case 'dropPk':
           if (!meta.pk.length) throw err(1091, 'Can\'t DROP \'PRIMARY\'; check that column/key exists');
-          if (meta.columns.some((c) => c.autoInc && meta.pk.some((x) => lc(x) === lc(c.name)))) throw err(1075, 'Incorrect table definition; there can be only one auto column and it must be defined as a key');
           meta.pk = [];
           break;
         case 'addIndex':

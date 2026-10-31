@@ -165,5 +165,6 @@ eq(one("CREATE VIEW v_personel AS SELECT ad_soyad, maas FROM personel WHERE maas
 eq(rows("SELECT * FROM v_personel ORDER BY maas"), [['Ahmet Y.', '12500.00']], 'view sorgu');
 eq(rows("SELECT COUNT(*) FROM personel WHERE departman <> 'insan kaynaklari'"), [['2']], 'aksan duyarsız <>');
 eq(one("UPDATE personel SET departman = 'Bilgi Teknolojileri' WHERE departman = 'bilişim teknolojileri'").affected, 1, 'SET ataması bozulmadı');
+eq(one("UPDATE `sirketdb`.`personel` SET `maas` = '9600' WHERE (`personel_id` = '1');").affected, 1, 'Workbench güncellemesi (sayı sütunu = metin)');
 console.log(`${count - fails}/${count} başarılı`);
 process.exit(fails ? 1 : 0);
