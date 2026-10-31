@@ -382,6 +382,8 @@ function exportPage(conn) {
   let filePath = `${DOCS}/dumps/Dump${today}.sql`;
   let target = 'file';
   let includeSchema = false;
+  let dumpRoutines = false;
+  let dumpTriggers = false;
   let what = 'both';
   const content = h('div', { class: 'wb-ex-content' });
   const progressLog = h('pre', { class: 'wb-log' });
@@ -432,12 +434,18 @@ function exportPage(conn) {
     };
     const incl = h('input', { type: 'checkbox', checked: includeSchema });
     incl.onchange = () => { includeSchema = incl.checked; };
+    const cbR = h('input', { type: 'checkbox', checked: dumpRoutines });
+    cbR.onchange = () => { dumpRoutines = cbR.checked; };
+    const cbT = h('input', { type: 'checkbox', checked: dumpTriggers });
+    cbT.onchange = () => { dumpTriggers = cbT.checked; };
     content.append(
       h('div', { class: 'wb-box' }, h('div', { class: 'wb-st-head' }, 'Tables to Export'),
         h('div', { class: 'wb-ex-lists' },
           h('div', { class: 'wb-grid-scroll' }, h('table', { class: 'wb-grid' }, h('thead', {}, h('tr', {}, h('th', {}, 'Exp...'), h('th', {}, 'Schema'))), left)),
           h('div', { class: 'wb-grid-scroll' }, h('table', { class: 'wb-grid' }, h('thead', {}, h('tr', {}, h('th', {}, 'Exp...'), h('th', {}, 'Schema Objects'))), right))),
         h('div', { class: 'wb-form-btns' }, h('button', { class: 'lab-btn', onclick: () => { for (const d of dbs) Object.keys(srv.getDb(d).meta.tables).forEach((t) => checked.get(d).add(t)); render(); } }, 'Select Tables'), h('button', { class: 'lab-btn', onclick: () => { checked.forEach((s) => s.clear()); render(); } }, 'Unselect All'), h('div', { class: 'spacer' }), whatSel)),
+      h('div', { class: 'wb-box' }, h('div', { class: 'wb-st-head' }, 'Objects to Export'),
+        h('div', { class: 'wb-te-colrow' }, h('label', {}, cbR, ' Dump Stored Procedures and Functions'), h('label', { style: { marginLeft: '18px' } }, h('input', { type: 'checkbox', disabled: true }), ' Dump Events'), h('label', { style: { marginLeft: '18px' } }, cbT, ' Dump Triggers'))),
       h('div', { class: 'wb-box' }, h('div', { class: 'wb-st-head' }, 'Export Options'),
         radio('folder', 'Export to Dump Project Folder'), pathIn(() => folderPath, (v) => { folderPath = v; }, false),
         h('div', { class: 'muted small' }, 'Each table will be exported into a separate file. This allows a selective restore, but may be slower.'),
@@ -450,7 +458,7 @@ function exportPage(conn) {
   const start = async () => {
     const sel = [...checked.entries()].filter(([, s]) => s.size);
     if (!sel.length) { await conn.desk.message({ title: 'Data Export', text: 'Please select at least one table to export.', icon: 'warning', owner: conn.win }); return; }
-    const opts = { includeSchema, structure: what !== 'data', data: what !== 'structure' };
+    const opts = { includeSchema, structure: what !== 'data', data: what !== 'structure', routines: dumpRoutines, triggers: dumpTriggers };
     progressLog.textContent = '';
     const log = (t) => { progressLog.textContent += t + '\n'; };
     const now = new Date();
@@ -463,7 +471,7 @@ function exportPage(conn) {
         }
         log(`${time()} Dumping ${sel.map(([d]) => d).join(', ')} (${sel.map(([, s]) => [...s].join(', ')).join('; ')})`);
         const parts = sel.map(([d, s]) => {
-          log(`Running: mysqldump.exe --defaults-file="C:\\Users\\Ogrenci\\AppData\\Local\\Temp\\tmpxx.cnf"  --host=localhost --port=3306 --default-character-set=utf8 --user=${conn.session.user} --protocol=tcp --single-transaction=TRUE --skip-triggers "${d}" ${[...s].join(' ')}`);
+          log(`Running: mysqldump.exe --defaults-file="C:\\Users\\Ogrenci\\AppData\\Local\\Temp\\tmpxx.cnf"  --host=localhost --port=3306 --default-character-set=utf8 --user=${conn.session.user} --protocol=tcp --single-transaction=TRUE${dumpRoutines ? ' --routines' : ''}${dumpTriggers ? '' : ' --skip-triggers'} "${d}" ${[...s].join(' ')}`);
           return conn.session.dump(d, { tables: [...s], ...opts, includeSchema: includeSchema || sel.length > 1 });
         });
         store.writeFile(filePath, parts.join('\n'));
@@ -474,7 +482,11 @@ function exportPage(conn) {
           for (const t of s) {
             const path = `${folderPath}/${d}_${t}.sql`;
             log(`${time()} Dumping ${d} (${t})`);
-            store.writeFile(path, conn.session.dump(d, { tables: [t], ...opts }));
+            store.writeFile(path, conn.session.dump(d, { tables: [t], ...opts, routines: false }));
+          }
+          if (dumpRoutines) {
+            log(`${time()} Dumping ${d} (routines)`);
+            store.writeFile(`${folderPath}/${d}_routines.sql`, conn.session.dump(d, { tables: [], structure: false, data: false, routines: true }));
           }
         }
         log(`${time()} Export of ${winPath(folderPath)} has finished`);

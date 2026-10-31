@@ -55,6 +55,9 @@ namespace Deneme
         {
             if (op == "open") return json.Contains("Pwd=1234") ? "{\"id\":1,\"version\":\"8.0.36\",\"database\":\"sirketdb\"}" : "{\"error\":{\"code\":1045,\"message\":\"Access denied for user 'root'@'localhost' (using password: YES)\"}}";
             if (op == "close") return "{}";
+            if (op == "routine") return json.Contains("ort") ? "{\"name\":\"`sirketdb`.`ort`\",\"params\":[{\"name\":\"p_sinif\",\"mode\":\"IN\"},{\"name\":\"p_ort\",\"mode\":\"OUT\"}]}" : "{\"error\":{\"code\":1305,\"message\":\"PROCEDURE sirketdb.yok does not exist\"}}";
+            if (json.Contains("CALL ") && json.Contains("ort\\u0060(@p_sinif, @_cnet_p_ort); SELECT @_cnet_p_ort"))
+                return "{\"results\":[{\"columns\":[{\"name\":\"ad\",\"type\":\"varchar\"}],\"rows\":[[\"Ali\"],[\"Ayşe\"]]},{\"affected\":0},{\"columns\":[{\"name\":\"@_cnet_p_ort\",\"type\":\"decimal\",\"scale\":2}],\"rows\":[[80.5]]}]}";
             if (json.Contains("COUNT")) return "{\"results\":[{\"columns\":[{\"name\":\"COUNT(*)\",\"type\":\"bigint\"}],\"rows\":[[2]]}]}";
             if (json.Contains("SELECT")) return "{\"results\":[{\"columns\":[{\"name\":\"personel_id\",\"type\":\"int\",\"table\":\"personel\",\"column\":\"personel_id\",\"pk\":true},{\"name\":\"ad\",\"type\":\"varchar\"},{\"name\":\"maas\",\"type\":\"decimal\",\"scale\":2},{\"name\":\"giris\",\"type\":\"date\"}],\"rows\":[[1,\"Ali\",9500.5,\"2020-01-02\"],[2,\"Ayşe\",null,\"2021-03-04\"]]}]}";
             if (json.Contains("INSERT")) return json.Contains("\"name\":\"ad\"") ? "{\"results\":[{\"affected\":1,\"insertId\":3}]}" : "{\"error\":{\"code\":1048,\"message\":\"Column 'ad' cannot be null\"}}";
@@ -128,6 +131,27 @@ namespace Deneme
         {
             var f = Run(Project(@"try { var c = new MySqlConnection(""Server=localhost;Pwd=1234""); new MySqlCommand(""SELECT 1"", c).ExecuteNonQuery(); } catch (InvalidOperationException ex) { sonuc.Text = ex.Message; }", "MySql.Data"));
             Assert.Equal("Connection must be valid and open.", f.Sonuc);
+        }
+    
+        [Fact]
+        public void StoredProcedureCommandBuildsCallAndReadsOutParameters()
+        {
+            var f = Run(Project(@"
+                using (var c = new MySqlConnection(ConfigurationManager.ConnectionStrings[""baglanti""].ConnectionString))
+                {
+                    c.Open();
+                    var k = new MySqlCommand(""ort"", c) { CommandType = CommandType.StoredProcedure };
+                    k.Parameters.AddWithValue(""@p_sinif"", ""10A"");
+                    k.Parameters.Add(""@p_ort"", MySqlDbType.Decimal).Direction = ParameterDirection.Output;
+                    var r = k.ExecuteReader();
+                    string s = """";
+                    while (r.Read()) s += r.GetString(0) + "","";
+                    r.Close();
+                    sonuc.Text = s + k.Parameters[""@p_ort""].Value;
+                    var y = new MySqlCommand(""yok"", c) { CommandType = CommandType.StoredProcedure };
+                    try { y.ExecuteNonQuery(); } catch (MySqlException ex) { sonuc.Text += ""|"" + ex.Number; }
+                }", "MySql.Data"));
+            Assert.Equal("Ali,Ayşe,80,50|1305", f.Sonuc);
         }
     }
 }

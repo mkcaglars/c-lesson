@@ -134,6 +134,18 @@ export function sqlCall(op, json) {
       return '{}';
     }
     if (!s) return JSON.stringify({ error: { code: 0, message: 'Connection must be valid and open.', kind: 'invalid' } });
+    if (op === 'routine') {
+      // CommandType.StoredProcedure: yordamın parametre listesi
+      const raw = String(a.name || '');
+      const dot = raw.indexOf('.');
+      const dbName = dot > 0 ? raw.slice(0, dot).replace(/`/g, '') : s.db;
+      const name = (dot > 0 ? raw.slice(dot + 1) : raw).replace(/`/g, '').toLowerCase();
+      const ctx = dbName ? server.getDb(dbName) : null;
+      if (!ctx) return err(1046, 'No database selected', '3D000');
+      const r = ctx.meta.procedures?.[name];
+      if (!r) return err(1305, `PROCEDURE ${ctx.name}.${name} does not exist`, '42000');
+      return JSON.stringify({ name: `\`${ctx.name}\`.\`${r.name}\``, params: r.params.map((p) => ({ name: p.name, mode: p.mode })) });
+    }
     if (op === 'schema') {
       const ctx = s.db ? server.getDb(s.db) : null;
       const m = ctx?.meta.tables[String(a.table || '').toLowerCase()];

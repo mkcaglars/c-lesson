@@ -4,6 +4,7 @@ import { ICONS } from '../icons.js';
 import { showMenu, menuButton } from '../desktop.js';
 import { QueryTab } from './query.js';
 import { TableEditor, SchemaEditor } from './tableeditor.js';
+import { RoutineEditor } from './routineeditor.js';
 import { openAdminPage } from './admin.js';
 import { typeText } from '../mysql/engine.js';
 import { applyScriptWizard } from './review.js';
@@ -557,7 +558,7 @@ export class WbConnection {
     names.sort();
     for (const db of names) {
       const ctx = server.getDb(db);
-      const tables = ctx ? Object.keys(ctx.meta.tables).sort() : [];
+      const tables = ctx ? Object.keys(ctx.meta.tables).filter((t) => !ctx.meta.tables[t].temporary).sort() : [];
       const views = ctx ? Object.keys(ctx.meta.views).sort() : [];
       if (q && !db.includes(q) && !tables.some((t) => t.includes(q))) continue;
       const key = 'db:' + db;
@@ -587,14 +588,32 @@ export class WbConnection {
           const fkey = k + ':fk';
           this.tree.appendChild(this.node(3, ICONS.folder, 'Foreign Keys', fkey, { kind: 'fks', db, table: t }));
           if (this.expanded.has(fkey)) for (const f of m.fks) this.tree.appendChild(this.node(4, ICONS.key, f.name, null, { leaf: true }));
-          this.tree.appendChild(this.node(3, ICONS.folder, 'Triggers', null, { leaf: true, kind: 'triggers' }));
+          const gkey = k + ':trg';
+          this.tree.appendChild(this.node(3, ICONS.folder, 'Triggers', gkey, { kind: 'triggers', db, table: t }));
+          if (this.expanded.has(gkey)) {
+            for (const tg of Object.values(ctx.meta.triggers || {}).filter((x) => x.table === t)) {
+              this.tree.appendChild(this.node(4, ICONS.column, tg.name, null, { kind: 'trigger', db, table: t, name: tg.name, leaf: true }));
+            }
+          }
         }
       }
       const vkey = key + ':views';
       this.tree.appendChild(this.node(1, ICONS.folder, 'Views', vkey, { kind: 'views', db }));
       if (this.expanded.has(vkey)) for (const v of views) this.tree.appendChild(this.node(2, ICONS.view, v, null, { kind: 'view', db, table: v, leaf: true, hover: [['grid', 'Select Rows - Limit 1000', () => this.selectRows(db, v)]] }));
-      this.tree.appendChild(this.node(1, ICONS.folder, 'Stored Procedures', null, { kind: 'procs', db, leaf: true }));
-      this.tree.appendChild(this.node(1, ICONS.folder, 'Functions', null, { kind: 'funcs', db, leaf: true }));
+      const pkey = key + ':procs';
+      this.tree.appendChild(this.node(1, ICONS.folder, 'Stored Procedures', pkey, { kind: 'procs', db }));
+      if (this.expanded.has(pkey)) {
+        for (const r of Object.values(ctx?.meta.procedures || {}).sort((a, b) => a.name.localeCompare(b.name))) {
+          this.tree.appendChild(this.node(2, ICONS.column, r.name, null, { kind: 'procedure', db, name: r.name, leaf: true, hover: [['wrench', 'Alter Stored Procedure', () => this.openRoutine(db, 'procedure', r.name)], ['grid', 'Execute', () => this.callRoutine(db, r)]] }));
+        }
+      }
+      const fkey2 = key + ':funcs';
+      this.tree.appendChild(this.node(1, ICONS.folder, 'Functions', fkey2, { kind: 'funcs', db }));
+      if (this.expanded.has(fkey2)) {
+        for (const r of Object.values(ctx?.meta.functions || {}).sort((a, b) => a.name.localeCompare(b.name))) {
+          this.tree.appendChild(this.node(2, ICONS.column, r.name, null, { kind: 'function', db, name: r.name, leaf: true, hover: [['wrench', 'Alter Function', () => this.openRoutine(db, 'function', r.name)]] }));
+        }
+      }
     }
   }
 
@@ -680,6 +699,26 @@ export class WbConnection {
         refresh,
       ];
     }
+    if (o.kind === 'procs') return [['Create Stored Procedure...', () => this.openRoutine(o.db, 'procedure', null)], null, refresh];
+    if (o.kind === 'funcs') return [['Create Function...', () => this.openRoutine(o.db, 'function', null)], null, refresh];
+    if (o.kind === 'triggers') return [['Create Trigger...', () => this.openRoutine(o.db, 'trigger', null, { table: o.table })], null, refresh];
+    if (o.kind === 'procedure' || o.kind === 'function') {
+      const ctx = this.lab.server.getDb(o.db);
+      const r = (o.kind === 'procedure' ? ctx?.meta.procedures : ctx?.meta.functions)?.[o.name.toLowerCase()];
+      const label = o.kind === 'procedure' ? 'Stored Procedure' : 'Function';
+      return [
+        ...(o.kind === 'procedure' ? [['Execute Stored Procedure...', () => this.callRoutine(o.db, r)], null] : []),
+        ['Copy to Clipboard', [['Name', () => navigator.clipboard?.writeText(o.name)], ['Create Statement', () => navigator.clipboard?.writeText(r ? this.session.routineCreateSql(r) : '')]]],
+        ['Send to SQL Editor', [['Name', () => this.queryTab()?.editor.insert(bq(o.name))], ['Create Statement', () => this.queryTab()?.editor.insert(r ? 'DELIMITER $$\n' + this.session.routineCreateSql(r) + '$$\nDELIMITER ;\n' : '')]]],
+        null,
+        [`Create ${label}...`, () => this.openRoutine(o.db, o.kind, null)],
+        [`Alter ${label}...`, () => this.openRoutine(o.db, o.kind, o.name)],
+        [`Drop ${label}...`, () => this.dropObject(o.kind, o.db, o.name)],
+        null,
+        refresh,
+      ];
+    }
+    if (o.kind === 'trigger') return [['Alter Trigger...', () => this.openRoutine(o.db, 'trigger', o.name)], ['Drop Trigger...', () => this.dropObject('trigger', o.db, o.name)], null, refresh];
     if (o.kind === 'view') return [['Select Rows - Limit 1000', () => this.selectRows(o.db, o.table)], null, ['Drop View...', () => this.dropObject('view', o.db, o.table)], null, refresh];
     return [createSchema, refresh];
   }
@@ -688,7 +727,10 @@ export class WbConnection {
     const what = { schema: ['Drop Schema', `Please confirm permanent deletion of schema '${db}' and all its objects.`, `DROP DATABASE ${bq(db)};`],
       table: ['Drop Table', `Please confirm permanent deletion of table '${table}' and its data.`, `DROP TABLE ${bq(db)}.${bq(table)};`],
       view: ['Drop View', `Please confirm permanent deletion of view '${table}'.`, `DROP VIEW ${bq(db)}.${bq(table)};`],
-      truncate: ['Truncate Table', `Please confirm permanent deletion of all data in table '${table}'.`, `TRUNCATE ${bq(db)}.${bq(table)};`] }[kind];
+      truncate: ['Truncate Table', `Please confirm permanent deletion of all data in table '${table}'.`, `TRUNCATE ${bq(db)}.${bq(table)};`],
+      procedure: ['Drop Stored Procedure', `Please confirm permanent deletion of stored procedure '${table}'.`, `DROP PROCEDURE ${bq(db)}.${bq(table)};`],
+      function: ['Drop Function', `Please confirm permanent deletion of function '${table}'.`, `DROP FUNCTION ${bq(db)}.${bq(table)};`],
+      trigger: ['Drop Trigger', `Please confirm permanent deletion of trigger '${table}'.`, `DROP TRIGGER ${bq(db)}.${bq(table)};`] }[kind];
     const r = await this.desk.message({ title: what[0], text: [h('b', {}, `${what[0]} '${table || db}'`), what[1]], icon: 'warning', owner: this.win,
       buttons: [{ text: 'Review SQL', value: 'review' }, { text: kind === 'truncate' ? 'Truncate' : 'Drop Now', value: 'now', primary: true }, { text: 'Cancel', value: null }] });
     if (r === 'review') await this.applyScript(what[2]);
@@ -712,6 +754,28 @@ export class WbConnection {
     const existing = this.tabs.find((t) => t instanceof TableEditor && t.db === db && t.origName === table && table);
     if (existing) { this.showTab(existing); return; }
     this.addTab(new TableEditor(this, db, table));
+  }
+
+  openRoutine(db, kind, name, opts = {}) {
+    const existing = name && this.tabs.find((t) => t instanceof RoutineEditor && t.db === db && t.kind === kind && t.origName === name);
+    if (existing) { this.showTab(existing); return; }
+    this.addTab(new RoutineEditor(this, db, kind, name, opts));
+  }
+
+  /** Execute Stored Procedure: parametreler için CALL betiği açar (Workbench gibi) */
+  callRoutine(db, r) {
+    if (!r) return;
+    const outs = r.params.filter((p) => p.mode !== 'IN');
+    const args = r.params.map((p) => (p.mode === 'IN' ? `<{${p.name} ${p.typeText}}>` : `@${p.name}`));
+    let text = `set ${outs.length ? outs.map((p) => `@${p.name} = ${p.mode === 'INOUT' ? `<{${p.name} ${p.typeText}}>` : '0'}`).join(', ') : '@dummy = 0'};\ncall ${bq(db)}.${bq(r.name)}(${args.join(', ')});\n`;
+    if (outs.length) text += `select ${outs.map((p) => '@' + p.name).join(', ')};\n`;
+    if (!r.params.length) {
+      const tab = this.openQuery({ title: `call ${r.name}`, text: `call ${bq(db)}.${bq(r.name)}();\n` });
+      const wait = () => (tab.editor ? tab.run('all') : setTimeout(wait, 30));
+      wait();
+      return;
+    }
+    this.openQuery({ title: `call ${r.name}`, text });
   }
 
   openSchemaEditor(db) {

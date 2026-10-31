@@ -560,3 +560,13 @@ select.lab-input { padding: 1px 4px; }
 .eer-tool.solid { text-decoration: underline solid; }
 .eer-table.picked { outline: 2px solid #e48e00; }
 .eer-canvas.placing { cursor: crosshair; }
+
+/* Workbench: yordam/tetikleyici düzenleyicisi */
+.wb-routine { display: flex; flex-direction: column; }
+.wb-routine-ed { flex: 1; min-height: 220px; border: 1px solid #c9ced6; margin: 0 10px; position: relative; }
+.wb-routine-ed .wb-sql-fallback { width: 100%; height: 100%; }
+.wb-te-trg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 10px; }
+.wb-te-trg-group { border: 1px solid #c9ced6; background: #fff; min-height: 70px; }
+.wb-te-trg-head { display: flex; align-items: center; justify-content: space-between; background: #eef1f5; padding: 3px 6px; font-weight: 600; font-size: 12px; }
+.wb-te-trg-item { display: flex; justify-content: space-between; align-items: center; padding: 3px 8px; font-size: 12px; cursor: default; }
+.wb-te-trg-item:hover { background: #e5effa; }

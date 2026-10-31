@@ -278,5 +278,28 @@ eq(one('SELECT 5 INTO @b').ok, true, 'SELECT INTO @değişken');
 eq(rows('SELECT @b'), [['5']], 'SELECT INTO değeri');
 const dmp = s.dump('sp', { routines: true });
 ok(/TRIGGER `satis_sonra` AFTER INSERT ON `satis`/.test(dmp) && /CREATE DEFINER=`root`@`localhost` FUNCTION `harf`/.test(dmp), 'dump: tetikleyici + yordamlar');
+
+// ---- çapraz veritabanı, çok tablolu UPDATE/DELETE, CREATE TABLE ... SELECT, TEMPORARY, EXPLAIN
+run(`CREATE DATABASE xa; CREATE DATABASE xb;
+CREATE TABLE xa.ogr (id INT PRIMARY KEY, ad VARCHAR(20), sinif_id INT, puan INT);
+CREATE TABLE xb.sinif (id INT PRIMARY KEY, ad VARCHAR(10));
+INSERT INTO xa.ogr VALUES (1,'Ali',1,50),(2,'Ayşe',2,60),(3,'Can',1,70);
+INSERT INTO xb.sinif VALUES (1,'10A'),(2,'10B'); USE xa;`);
+eq(rows('SELECT o.ad, s.ad FROM ogr o JOIN xb.sinif s ON s.id = o.sinif_id ORDER BY o.id'), [['Ali', '10A'], ['Ayşe', '10B'], ['Can', '10A']], 'iki veritabanından JOIN');
+eq(one("INSERT INTO xb.sinif VALUES (3, '11A')").affected, 1, 'başka veritabanına INSERT');
+eq(rows('SELECT COUNT(*) FROM xb.sinif'), [['3']], 'başka veritabanı sayım');
+eq(one("UPDATE ogr o JOIN xb.sinif s ON s.id = o.sinif_id SET o.puan = o.puan + 10 WHERE s.ad = '10A'").affected, 2, 'UPDATE ... JOIN');
+eq(rows('SELECT puan FROM ogr ORDER BY id'), [['60'], ['60'], ['80']], 'UPDATE JOIN sonucu');
+eq(one("DELETE o FROM ogr o JOIN xb.sinif s ON s.id = o.sinif_id WHERE s.ad = '10B'").affected, 1, 'DELETE ... JOIN');
+eq(rows('SELECT id FROM ogr ORDER BY id'), [['1'], ['3']], 'DELETE JOIN sonucu');
+eq(one('UPDATE ogr o JOIN xb.sinif s ON s.id = o.sinif_id SET s.ad = 1').error?.code, 1235, 'ikinci tabloyu güncelleme desteklenmiyor');
+eq(one('CREATE TABLE yedek AS SELECT o.ad, o.puan, o.puan * 2 AS iki FROM ogr o').message, '2 row(s) affected Records: 2  Duplicates: 0  Warnings: 0', 'CREATE TABLE ... SELECT');
+ok(/`puan` int DEFAULT NULL/.test(rows('SHOW CREATE TABLE yedek')[0][1]), 'CTAS sütun türü');
+eq(one('CREATE TEMPORARY TABLE gecici (x INT)').ok, true, 'CREATE TEMPORARY TABLE');
+eq(rows('SHOW TABLES').map((r) => r[0]), ['ogr', 'yedek'], 'geçici tablo SHOW TABLES\'ta görünmez');
+const ex = one('EXPLAIN SELECT * FROM ogr WHERE id = 1');
+eq(ex.columns.map((c) => c.name), ['id', 'select_type', 'table', 'partitions', 'type', 'possible_keys', 'key', 'key_len', 'ref', 'rows', 'filtered', 'Extra'], 'EXPLAIN sütunları');
+eq([ex.rows[0][4], ex.rows[0][6]], ['const', 'PRIMARY'], 'EXPLAIN birincil anahtar');
+eq(one('EXPLAIN SELECT * FROM ogr').rows[0][4], 'ALL', 'EXPLAIN tam tarama');
 console.log(`${count - fails}/${count} başarılı`);
 process.exit(fails ? 1 : 0);

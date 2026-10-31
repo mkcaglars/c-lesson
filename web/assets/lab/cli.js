@@ -33,6 +33,7 @@ export function openMysqlCli(lab) {
   setTimeout(() => input.focus(), 0);
   let session = null;
   let buffer = '';
+  let delim = ';';
   const history = [];
   let hi = 0;
   const print = (t) => { out.textContent += t + '\n'; box.scrollTop = box.scrollHeight; };
@@ -75,14 +76,18 @@ export function openMysqlCli(lab) {
       print(r.ok ? 'Database changed' : `ERROR ${r.error.code} (${r.error.state}): ${r.error.message}`);
       return;
     }
+    const dm = !buffer && /^delimiter\s+(\S+)\s*$/i.exec(t);
+    if (dm) { delim = dm[1]; return; }
     buffer += (buffer ? '\n' : '') + v;
-    const ends = /;\s*$|\\g\s*$|\\G\s*$/.test(buffer);
+    const head = delim === ';' ? '' : `DELIMITER ${delim}\n`;
+    const gEnd = /\\[gG]\s*$/.test(buffer);
+    const ends = gEnd || (delim === ';' ? /;\s*$/.test(buffer) && !splitStatements(buffer).pending : buffer.trimEnd().endsWith(delim));
     if (!ends) { prompt.textContent = '    -> '; return; }
-    const text = buffer.replace(/\\[gG]\s*$/, ';');
+    const text = head + buffer.replace(/\\[gG]\s*$/, delim);
     buffer = '';
     prompt.textContent = 'mysql> ';
     for (const st of splitStatements(text)) {
-      const r = session.execute(st.sql)[0];
+     for (const r of session.execute(st.sql)) {
       lab.events.emit('query', { sql: r.sql, result: r, session, cli: true });
       if (!r.ok) { print(`ERROR ${r.error.code} (${r.error.state}): ${r.error.message}`); continue; }
       if (r.rows) {
@@ -90,6 +95,7 @@ export function openMysqlCli(lab) {
         else print(asciiTable(r.columns, r.rows) + `\n${r.rows.length} row${r.rows.length > 1 ? 's' : ''} in set ${secs(r.ms)}\n`);
       } else if (r.useDb) print('Database changed');
       else print(`Query OK, ${r.affected} row${r.affected === 1 ? '' : 's'} affected ${secs(r.ms)}` + (r.info ? '\n' + r.info.replace('Rows matched', 'Rows matched') : '') + '\n');
+     }
     }
   });
   void store;

@@ -120,11 +120,30 @@ export class TableEditor {
     if (this.sub === 'columns') this.renderColumns(body);
     else if (this.sub === 'indexes') this.renderIndexes(body);
     else if (this.sub === 'fks') this.renderFks(body);
-    else body.appendChild(h('div', { class: 'wb-te-empty' }, this.sub === 'triggers' ? 'Tetikleyiciler (triggers) bu simülatörde desteklenmiyor.' : 'Satır biçimi ve diğer seçenekler varsayılan değerlerdedir.'));
+    else if (this.sub === 'triggers') this.renderTriggers(body);
+    else body.appendChild(h('div', { class: 'wb-te-empty' }, 'Satır biçimi ve diğer seçenekler varsayılan değerlerdedir.'));
     const foot = h('div', { class: 'wb-te-foot' }, h('div', { class: 'spacer' }),
       h('button', { class: 'lab-btn primary', onclick: () => this.apply() }, 'Apply'),
       h('button', { class: 'lab-btn', onclick: () => { this.load(); this.render(); } }, 'Revert'));
     this.el.append(head, body, subTabs, foot);
+  }
+
+  renderTriggers(body) {
+    if (!this.origName) { body.appendChild(h('div', { class: 'wb-te-empty' }, 'Tetikleyici eklemek için önce tabloyu oluşturun (Apply).')); return; }
+    const ctx = this.conn.lab.server.getDb(this.db);
+    const list = Object.values(ctx?.meta.triggers || {}).filter((t) => t.table === this.origName);
+    const wrap = h('div', { class: 'wb-te-trg' });
+    for (const timing of ['BEFORE', 'AFTER']) {
+      for (const event of ['INSERT', 'UPDATE', 'DELETE']) {
+        const items = list.filter((t) => t.timing === timing && t.event === event);
+        wrap.appendChild(h('div', { class: 'wb-te-trg-group' },
+          h('div', { class: 'wb-te-trg-head' }, h('span', {}, `${timing} ${event}`),
+            h('button', { class: 'wb-mini', title: 'Add Trigger', onclick: () => this.conn.openRoutine(this.db, 'trigger', null, { table: this.origName, timing, event }) }, '+')),
+          ...items.map((t) => h('div', { class: 'wb-te-trg-item', title: 'Düzenlemek için çift tıklayın', ondblclick: () => this.conn.openRoutine(this.db, 'trigger', t.name) }, t.name,
+            h('button', { class: 'wb-mini', title: 'Delete Trigger', onclick: () => this.conn.dropObject('trigger', this.db, t.name).then(() => this.render()) }, '×')))));
+      }
+    }
+    body.appendChild(wrap);
   }
 
   renderColumns(body) {

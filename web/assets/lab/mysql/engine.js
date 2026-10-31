@@ -385,7 +385,18 @@ export class Session {
     server.sessions.add(this);
   }
 
-  close() { this.server.sessions.delete(this); }
+  close() {
+    this.server.sessions.delete(this);
+    // oturuma ait geçici (TEMPORARY) tablolar oturumla birlikte silinir
+    for (const ctx of this.server.dbs.values()) {
+      for (const m of Object.values(ctx.meta.tables)) {
+        if (m.temporary !== this.id) continue;
+        try { ctx.sql.run(`DROP TABLE ${dq(m.name)}`); } catch { /* yok */ }
+        delete ctx.meta.tables[m.name];
+        this.server.saveMeta(ctx);
+      }
+    }
+  }
 
   use(name) {
     const ctx = this.server.getDb(name);
@@ -507,7 +518,15 @@ export class Session {
       case 'DESC':
       case 'EXPLAIN': {
         p.i++;
-        if (p.is('SELECT') || p.is('UPDATE') || p.is('DELETE') || p.is('INSERT')) throw err(1235, 'This version of MySQL Simulator doesn\'t yet support \'EXPLAIN\'');
+        if (p.eat('FORMAT')) { p.expect('='); const f = p.name(true).toUpperCase(); if (f !== 'TRADITIONAL') throw err(1235, `Simülatör: EXPLAIN FORMAT=${f} desteklenmiyor; FORMAT=TRADITIONAL (tablo) kullanılır.`); }
+        if (p.is('ANALYZE')) throw err(1235, 'Simülatör: EXPLAIN ANALYZE desteklenmiyor.');
+        if (p.is('SELECT') || p.is('UPDATE') || p.is('DELETE') || p.is('INSERT') || p.is('REPLACE') || p.is('WITH') || p.is('(')) {
+          const first = p.cur;
+          const inner = st.tokens.slice(st.tokens.indexOf(first));
+          const kind2 = first.t === 'id' ? (first.u === 'WITH' ? 'SELECT' : first.u) : 'SELECT';
+          this.explainMode = true;
+          try { return this.dml(src, { ...st, tokens: inner }, kind2); } finally { this.explainMode = false; }
+        }
         const q = p.qname();
         const col = p.done() ? null : p.name(true);
         return this.describe(q, col);
@@ -696,6 +715,8 @@ export class Session {
             const after = T(j + 2);
             if (after && (after.t === 'id' || after.t === 'qid') && this.server.hasDb(name) && !tableNames.has(lc(name))) {
               qualifiers.add(lc(name));
+              // başka veritabanı: ATTACH edilmiş şema adıyla kalır
+              if (opts.execDb && lc(name) !== opts.execDb) { out[k] = dq(lc(name)); continue; }
               out[k] = '';
               out[S[j + 1]] = '';
               continue;
@@ -954,42 +975,68 @@ export class Session {
   // ------------------------------------------------------------ DML
 
   dml(src, st, kind) {
-    const toks = st.tokens;
-    const firstCtxName = this.db;
-    // niteleyicileri belirlemek için önce bir çeviri: hangi veritabanı?
-    let ctx = firstCtxName ? this.server.getDb(firstCtxName) : null;
-    let tr = this.translate(toks, src, ctx, { aliasSelect: kind === 'SELECT', upsert: true });
-    if (tr.qualifiers.size > 1) throw err(1235, 'Farklı veritabanlarındaki tabloları aynı sorguda kullanmak bu simülatörde desteklenmiyor.');
-    if (tr.qualifiers.size === 1) {
-      const q = [...tr.qualifiers][0];
-      if (!ctx || ctx.name !== q) {
-        ctx = this.server.getDb(q);
-        tr = this.translate(toks, src, ctx, { aliasSelect: kind === 'SELECT', upsert: true });
-      }
+    let toks = st.tokens;
+    // MySQL çok tablolu UPDATE / DELETE → SQLite biçimi
+    if (kind === 'UPDATE' || kind === 'DELETE') {
+      const rw = this.rewriteMultiTable(toks.filter(sig), src, kind);
+      if (rw) { src = rw; toks = tokenize(rw); st = { ...st, tokens: toks }; }
     }
     const sigToks = toks.filter(sig);
+    const tq = this.dmlTargetQ(sigToks, kind);
+    const target = tq?.name ?? null;
+    // hedef tablonun veritabanı (UPDATE db.t ...) ve sorgunun çalışacağı bağlantı
+    let tctx = kind !== 'SELECT' && tq?.db ? this.ctx(tq.db) : this.db ? this.server.getDb(this.db) : null;
+    let ctx = this.db ? this.server.getDb(this.db) : tctx;
+    const opts = { aliasSelect: kind === 'SELECT', upsert: true };
+    let tr = this.translate(toks, src, ctx, { ...opts, execDb: ctx?.name });
+    if (!ctx && tr.qualifiers.size) {
+      ctx = this.server.getDb([...tr.qualifiers][0]);
+      tr = this.translate(toks, src, ctx, { ...opts, execDb: ctx.name });
+    }
+    if (kind === 'SELECT') tctx = ctx;
+    // farklı veritabanlarındaki tablolar: SQLite ATTACH
+    const attach = [...tr.qualifiers].filter((q) => q !== ctx?.name);
     // INSERT ... SET a=1, b=2
     let sqlText = tr.text;
-    const target = this.dmlTarget(sigToks, kind);
     if (kind !== 'SELECT') {
-      if (!ctx) throw err(1046, 'No database selected');
-      if (target && !ctx.meta.tables[lc(target)]) {
-        if (ctx.meta.views[lc(target)]) throw err(1288, `The target table ${target} of the ${kind} is not updatable`);
-        throw err(1146, `Table '${ctx.name}.${lc(target)}' doesn't exist`);
+      if (!tctx) throw err(1046, 'No database selected');
+      if (target && !tctx.meta.tables[lc(target)]) {
+        if (tctx.meta.views[lc(target)]) throw err(1288, `The target table ${target} of the ${kind} is not updatable`);
+        throw err(1146, `Table '${tctx.name}.${lc(target)}' doesn't exist`);
       }
-      this.requirePriv(ctx.name, kind === 'REPLACE' ? 'INSERT' : kind, target);
-      if (kind === 'INSERT' || kind === 'REPLACE') sqlText = this.rewriteInsertSet(sigToks, src, ctx, sqlText);
-      if ((kind === 'UPDATE' || kind === 'DELETE') && this.safeUpdates) this.checkSafeUpdate(sigToks, ctx, target, kind);
+      this.requirePriv(tctx.name, kind === 'REPLACE' ? 'INSERT' : kind, target);
+      if (kind === 'INSERT' || kind === 'REPLACE') sqlText = this.rewriteInsertSet(sigToks, src, tctx, sqlText, ctx);
+      if ((kind === 'UPDATE' || kind === 'DELETE') && this.safeUpdates) this.checkSafeUpdate(sigToks, tctx, target, kind);
       if ((kind === 'UPDATE' || kind === 'DELETE') && sigToks.some((t, i) => t.t === 'id' && t.u === 'LIMIT' && i > 0)) {
         sqlText = this.rewriteLimit(sqlText, kind, target);
       }
     } else if (ctx) this.requirePriv(ctx.name, 'SELECT');
+    for (const q of attach) this.requirePriv(q, 'SELECT');
     const db = ctx ? ctx.sql : this.server.scratch;
+    const attached = [];
+    try {
+      for (const q of attach) {
+        const other = this.server.getDb(q);
+        if (this.txDbs.has(ctx.name)) throw err(1235, 'Simülatör: açık bir işlem (transaction) içinde başka veritabanındaki tabloya erişilemiyor; önce COMMIT yapın.');
+        db.run(`ATTACH DATABASE ${sq('/' + other.sql.filename)} AS ${dq(q)}`);
+        attached.push(q);
+      }
+      return this.dmlRun({ db, ctx, tctx, kind, target, sigToks, src, sqlText, tr });
+    } finally {
+      for (const q of attached) { try { db.run(`DETACH DATABASE ${dq(q)}`); } catch { /* yok */ } }
+    }
+  }
+
+  dmlRun({ db, ctx, tctx, kind, target, sigToks, src, sqlText, tr }) {
+    if (this.explainMode) {
+      this.explainMode = false;
+      return this.explainPlan(db, sqlText, tctx || ctx, sigToks, kind, target, { kind, ctx: tctx || ctx, target, toks: sigToks, src });
+    }
     if (this.inTx && ctx && !this.txDbs.has(ctx.name)) {
       db.run('BEGIN');
       this.txDbs.add(ctx.name);
     }
-    const errCtx = { kind, ctx, target, toks: sigToks, src };
+    const errCtx = { kind, ctx: tctx || ctx, target, toks: sigToks, src };
     if (kind === 'SELECT') {
       let stmt;
       try {
@@ -1020,18 +1067,93 @@ export class Session {
       throw this.mapError(e, errCtx);
     }
     const affected = db.getRowsModified();
-    const res = { affected, db: ctx.name, table: lc(target) };
+    const res = { affected, db: tctx.name, table: lc(target) };
     if (kind === 'INSERT' || kind === 'REPLACE') {
       const id = db.exec('SELECT last_insert_rowid()')[0].values[0][0];
-      const meta = ctx.meta.tables[lc(target)];
+      const meta = tctx.meta.tables[lc(target)];
       if (meta && meta.columns.some((c) => c.autoInc) && affected > 0) { this.lastInsertId = id; res.insertId = id; }
       const tuples = this.countTuples(sigToks);
       if (tuples > 1) res.info = `Records: ${tuples}  Duplicates: 0  Warnings: 0`;
     } else if (kind === 'UPDATE') {
       res.info = `Rows matched: ${affected}  Changed: ${affected}  Warnings: 0`;
     }
-    if (!this.inTx) this.changed(ctx, false);
+    if (!this.inTx) this.changed(tctx, false);
     return res;
+  }
+
+  /** EXPLAIN: SQLite sorgu planını MySQL EXPLAIN tablosuna çevirir */
+  explainPlan(db, sqlText, ctx, T, kind, target, errCtx) {
+    let plan;
+    try { plan = db.exec('EXPLAIN QUERY PLAN ' + sqlText)[0]?.values || []; } catch (e) { throw this.mapError(e, errCtx); }
+    // takma ad → tablo
+    const alias = new Map();
+    for (let i = 0; i < T.length; i++) {
+      const t = T[i];
+      if (!(t.t === 'id' && ['FROM', 'JOIN', 'UPDATE', 'INTO'].includes(t.u))) continue;
+      let k = i + 1;
+      while (k < T.length) {
+        let n = T[k];
+        if (!n || !(n.t === 'id' || n.t === 'qid')) break;
+        if (T[k + 1]?.v === '.') { k += 2; n = T[k]; }
+        const name = lc(n.t === 'qid' ? n.val : n.v);
+        k++;
+        let a = name;
+        if (T[k]?.t === 'id' && T[k].u === 'AS') { a = lc(T[k + 1].t === 'qid' ? T[k + 1].val : T[k + 1].v); k += 2; } else if (T[k] && (T[k].t === 'qid' || (T[k].t === 'id' && !RESERVED.has(T[k].u) && !['STRAIGHT_JOIN', 'USING', 'NATURAL'].includes(T[k].u)))) { a = lc(T[k].t === 'qid' ? T[k].val : T[k].v); k++; }
+        alias.set(a, name);
+        if (T[k]?.v === ',') { k++; continue; }
+        break;
+      }
+    }
+    const count = (name) => { try { return db.exec(`SELECT count(*) FROM ${dq(name)}`)[0].values[0][0]; } catch { return null; } };
+    const hasWhere = T.some((t) => t.t === 'id' && t.u === 'WHERE');
+    const rows = [];
+    const selId = new Map([[0, 1]]);
+    const selType = new Map([[1, kind === 'SELECT' ? 'SIMPLE' : kind]]);
+    let nextId = 1;
+    let filesort = false;
+    for (const [id, parent, , detail] of plan) {
+      const d = String(detail);
+      const sid = selId.get(parent) ?? 1;
+      if (/SUBQUERY|CO-ROUTINE|MATERIALIZE/.test(d)) {
+        const n = ++nextId;
+        selId.set(id, n);
+        selType.set(n, /CORRELATED/.test(d) ? 'DEPENDENT SUBQUERY' : /CO-ROUTINE|MATERIALIZE/.test(d) ? 'DERIVED' : 'SUBQUERY');
+        if (selType.get(1) === 'SIMPLE') selType.set(1, 'PRIMARY');
+        continue;
+      }
+      selId.set(id, sid);
+      if (/TEMP B-TREE/.test(d)) { filesort = true; continue; }
+      const m = /^(SCAN|SEARCH) (\S+)(?: USING (.*))?$/.exec(d);
+      if (!m) continue;
+      const a = lc(m[2]);
+      const table = alias.get(a) || a;
+      const meta = ctx?.meta.tables[table];
+      const using = m[3] || '';
+      let type = 'ALL';
+      let key = null;
+      let extra = [];
+      let est = count(table);
+      const idxName = (/INDEX (\S+)/.exec(using) || [])[1];
+      const keyName = !idxName ? null : /^sqlite_autoindex_/.test(idxName) ? 'PRIMARY' : idxName.includes('.') ? idxName.slice(idxName.indexOf('.') + 1) : idxName;
+      const unique = keyName === 'PRIMARY' || /INTEGER PRIMARY KEY/.test(using) || (meta && meta.uniques.some((u) => u.name === keyName));
+      if (m[1] === 'SEARCH') {
+        key = /INTEGER PRIMARY KEY/.test(using) ? 'PRIMARY' : /AUTOMATIC/.test(using) ? null : keyName;
+        const eq = /\(([^)]*)\)/.exec(using)?.[1] || '';
+        const range = /[<>]/.test(eq);
+        if (!key) { type = 'ALL'; extra.push('Using where; Using join buffer (hash join)'); } else if (range) { type = 'range'; extra.push('Using where'); est = Math.max(1, Math.round((est || 0) / 3)); } else if (unique) { type = rows.length ? 'eq_ref' : 'const'; est = 1; } else { type = 'ref'; est = Math.max(1, Math.round((est || 0) / 10)); }
+        if (/COVERING/.test(using) && key) extra.push('Using index');
+      } else {
+        if (/COVERING INDEX/.test(using)) { type = 'index'; key = keyName; extra.push('Using index'); }
+        if (hasWhere) extra.unshift('Using where');
+      }
+      const possible = meta ? [meta.pk.length ? 'PRIMARY' : null, ...meta.uniques.map((u) => u.name), ...meta.indexes.map((u) => u.name)].filter(Boolean) : [];
+      rows.push([selId.get(id) ?? sid, selType.get(selId.get(id) ?? sid) || 'SIMPLE', a, null, type, key ? possible.filter((x) => x === key).join(',') || key : null, key, key ? '4' : null, type === 'const' ? 'const' : null, est ?? 1, '100.00', extra.join('; ') || null]);
+    }
+    if (rows.some((r) => r[0] > 1)) for (const r of rows) if (r[0] === 1 && r[1] === 'SIMPLE') r[1] = 'PRIMARY';
+    if (filesort && rows.length) rows[0][11] = [rows[0][11], 'Using temporary; Using filesort'].filter(Boolean).join('; ');
+    if (!rows.length) rows.push([1, kind === 'SELECT' ? 'SIMPLE' : kind, target ? lc(target) : null, null, kind === 'SELECT' ? null : 'ALL', null, null, null, null, kind === 'SELECT' ? null : null, kind === 'SELECT' ? null : '100.00', kind === 'SELECT' ? 'No tables used' : null]);
+    const names = ['id', 'select_type', 'table', 'partitions', 'type', 'possible_keys', 'key', 'key_len', 'ref', 'rows', 'filtered', 'Extra'];
+    return { columns: names.map((n) => ({ name: n, type: n === 'id' || n === 'rows' ? 'bigint' : n === 'filtered' ? 'varchar' : 'varchar' })), rows, affected: 0, db: ctx?.name ?? null };
   }
 
   hasTopLevel(sigToks, word) {
@@ -1044,12 +1166,147 @@ export class Session {
     return false;
   }
 
-  dmlTarget(T, kind) {
+  /**
+   * MySQL çok tablolu UPDATE / DELETE komutlarını SQLite'ın anlayacağı biçime çevirir.
+   * UPDATE a JOIN b ON k SET a.x = b.y WHERE w  →  UPDATE a SET x = b.y FROM b WHERE (k) AND (w)
+   * DELETE a FROM a JOIN b ON k WHERE w         →  DELETE FROM a WHERE rowid IN (SELECT a.rowid FROM a JOIN b ON k WHERE w)
+   * Döner: yeni MySQL metni ya da null (tek tablolu komut).
+   */
+  rewriteMultiTable(T, src, kind) {
+    const text = (a, b) => (b > a ? src.slice(T[a].s, T[b - 1].e) : '');
+    const isW = (t, ...w) => t && t.t === 'id' && w.includes(t.u);
+    const isOp = (t, v) => t && t.t === 'op' && t.v === v;
+    const topIdx = (from, pred) => {
+      let d = 0;
+      for (let i = from; i < T.length; i++) {
+        if (isOp(T[i], '(')) d++;
+        else if (isOp(T[i], ')')) d--;
+        else if (d === 0 && pred(T[i], i)) return i;
+      }
+      return -1;
+    };
+    const unsupported = (m) => err(1235, `Simülatör: ${m}`);
+    /** tablo başvurusu: ad [. ad] [[AS] takma] → { end, name, alias, nameText } */
+    const tableRef = (i) => {
+      const a = i;
+      if (isOp(T[i], '(')) throw unsupported('alt sorgulu çok tablolu güncelleme desteklenmiyor.');
+      let name = T[i].t === 'qid' ? T[i].val : T[i].v;
+      i++;
+      if (isOp(T[i], '.')) { name = T[i + 1].t === 'qid' ? T[i + 1].val : T[i + 1].v; i += 2; }
+      const nameEnd = i;
+      let alias = name;
+      if (isW(T[i], 'AS')) { alias = T[i + 1].t === 'qid' ? T[i + 1].val : T[i + 1].v; i += 2; } else if (T[i] && (T[i].t === 'id' || T[i].t === 'qid') && !isW(T[i], 'JOIN', 'INNER', 'LEFT', 'RIGHT', 'CROSS', 'STRAIGHT_JOIN', 'ON', 'USING', 'SET', 'WHERE', 'NATURAL', 'ORDER', 'LIMIT')) { alias = T[i].t === 'qid' ? T[i].val : T[i].v; i++; }
+      return { end: i, name: lc(name), alias: lc(alias), nameText: text(a, nameEnd), text: text(a, i) };
+    };
+    /** FROM bölümü: ilk tablo + birleşimler → { first, joins: [{ kind, ref, on }] , refsText } */
+    const refs = (a, b) => {
+      const first = tableRef(a);
+      const all = [first];
+      const joins = [];
+      let i = first.end;
+      while (i < b) {
+        if (isOp(T[i], ',')) { const r = tableRef(i + 1); all.push(r); joins.push({ kind: ',', ref: r, on: null, a: i, b: r.end }); i = r.end; continue; }
+        const ja = i;
+        let jk = 'INNER';
+        if (isW(T[i], 'LEFT', 'RIGHT')) { jk = T[i].u; i++; if (isW(T[i], 'OUTER')) i++; } else if (isW(T[i], 'INNER', 'CROSS')) i++;
+        else if (isW(T[i], 'NATURAL')) throw unsupported('NATURAL JOIN içeren çok tablolu komut desteklenmiyor.');
+        if (!isW(T[i], 'JOIN', 'STRAIGHT_JOIN')) throw syntaxError(src, { s: T[0].s, e: T[T.length - 1].e }, T[i]);
+        const r = tableRef(i + 1);
+        all.push(r);
+        i = r.end;
+        let on = null;
+        if (isW(T[i], 'ON')) {
+          const ca = i + 1;
+          let d = 0;
+          let k = ca;
+          for (; k < b; k++) {
+            if (isOp(T[k], '(')) d++;
+            else if (isOp(T[k], ')')) d--;
+            else if (d === 0 && (isW(T[k], 'JOIN', 'INNER', 'LEFT', 'RIGHT', 'CROSS', 'STRAIGHT_JOIN', 'NATURAL') || isOp(T[k], ','))) break;
+          }
+          on = { a: ca, b: k };
+          i = k;
+        } else if (isW(T[i], 'USING')) throw unsupported('USING (...) ile birleşen çok tablolu komut desteklenmiyor; ON kullanın.');
+        joins.push({ kind: jk, ref: r, on, a: ja, b: i });
+      }
+      return { first, joins, all };
+    };
+    if (kind === 'UPDATE') {
+      let i = 1;
+      while (isW(T[i], 'LOW_PRIORITY', 'IGNORE')) i++;
+      const setIdx = topIdx(i, (t) => isW(t, 'SET'));
+      if (setIdx < 0) return null;
+      if (topIdx(i, (t, k) => k < setIdx && (isW(t, 'JOIN', 'STRAIGHT_JOIN') || isOp(t, ','))) < 0) return null;
+      const R = refs(i, setIdx);
+      if (R.joins.some((j) => j.kind === 'LEFT' || j.kind === 'RIGHT')) throw unsupported('LEFT/RIGHT JOIN içeren UPDATE desteklenmiyor; INNER JOIN kullanın.');
+      const whereIdx = topIdx(setIdx, (t) => isW(t, 'WHERE', 'ORDER', 'LIMIT'));
+      const setEnd = whereIdx < 0 ? T.length : whereIdx;
+      // atamalar: sol taraftaki niteleyici yalnızca ilk tablo olabilir
+      const assigns = [];
+      let k = setIdx + 1;
+      while (k < setEnd) {
+        let d = 0;
+        let e = k;
+        for (; e < setEnd; e++) { if (isOp(T[e], '(')) d++; else if (isOp(T[e], ')')) d--; else if (d === 0 && isOp(T[e], ',')) break; }
+        let c = k;
+        if (isOp(T[k + 1], '.')) {
+          const q = lc(T[k].t === 'qid' ? T[k].val : T[k].v);
+          if (q !== R.first.alias && q !== R.first.name) throw unsupported('çok tablolu UPDATE\'te yalnızca ilk tablonun sütunları güncellenebilir.');
+          c = k + 2;
+        }
+        assigns.push(text(c, e));
+        k = e + 1;
+      }
+      const conds = R.joins.filter((j) => j.on).map((j) => `(${text(j.on.a, j.on.b)})`);
+      // FROM: ilk birleşenden sonrakiler; ilk birleşimin ON koşulu WHERE'e taşınır
+      const rest = R.joins.map((j, n) => (n === 0 ? j.ref.text : j.kind === ',' ? ', ' + j.ref.text : `JOIN ${j.ref.text}${j.on ? ` ON ${text(j.on.a, j.on.b)}` : ''}`));
+      const firstOn = R.joins[0].on ? [`(${text(R.joins[0].on.a, R.joins[0].on.b)})`] : [];
+      void conds;
+      const where = whereIdx >= 0 && isW(T[whereIdx], 'WHERE') ? [`(${text(whereIdx + 1, topIdx(whereIdx + 1, (t) => isW(t, 'ORDER', 'LIMIT')) < 0 ? T.length : topIdx(whereIdx + 1, (t) => isW(t, 'ORDER', 'LIMIT')))})`] : [];
+      const w = [...firstOn, ...where];
+      const firstRef = R.first.alias !== R.first.name ? `${R.first.nameText} AS ${bq(R.first.alias)}` : R.first.nameText;
+      return `UPDATE ${firstRef} SET ${assigns.join(', ')} FROM ${rest.join(' ')}${w.length ? ' WHERE ' + w.join(' AND ') : ''}`;
+    }
+    // DELETE
+    let i = 1;
+    while (isW(T[i], 'LOW_PRIORITY', 'QUICK', 'IGNORE')) i++;
+    let targets;
+    let fromA;
+    let fromB;
+    if (isW(T[i], 'FROM')) {
+      const usingIdx = topIdx(i, (t) => isW(t, 'USING'));
+      if (usingIdx < 0) return null;
+      targets = [];
+      for (let k = i + 1; k < usingIdx; k++) if (T[k].t === 'id' || T[k].t === 'qid') { if (!isOp(T[k + 1], '.') || isOp(T[k + 2], '*')) targets.push(lc(T[k].t === 'qid' ? T[k].val : T[k].v)); }
+      fromA = usingIdx + 1;
+    } else {
+      const fromIdx = topIdx(i, (t) => isW(t, 'FROM'));
+      if (fromIdx < 0) return null;
+      targets = [];
+      for (let k = i; k < fromIdx; k++) if ((T[k].t === 'id' || T[k].t === 'qid') && !(isOp(T[k - 1], '.'))) targets.push(lc(T[k].t === 'qid' ? T[k].val : T[k].v));
+      fromA = fromIdx + 1;
+    }
+    const whereIdx = topIdx(fromA, (t) => isW(t, 'WHERE', 'ORDER', 'LIMIT'));
+    fromB = whereIdx < 0 ? T.length : whereIdx;
+    if (targets.length !== 1) throw unsupported('tek komutta birden fazla tablodan silme desteklenmiyor; her tablo için ayrı DELETE yazın.');
+    const R = refs(fromA, fromB);
+    const tgt = R.all.find((r) => r.alias === targets[0]) || R.all.find((r) => r.name === targets[0]);
+    if (!tgt) throw err(1109, `Unknown table '${targets[0]}' in MULTI DELETE`);
+    const where = whereIdx >= 0 && isW(T[whereIdx], 'WHERE') ? ' ' + text(whereIdx, T.length) : '';
+    return `DELETE FROM ${tgt.nameText} WHERE rowid IN (SELECT ${bq(tgt.alias)}.rowid FROM ${text(fromA, fromB)}${where})`;
+  }
+
+  dmlTarget(T, kind) { return this.dmlTargetQ(T, kind)?.name ?? null; }
+
+  /** DML hedef tablosu: { db, name } */
+  dmlTargetQ(T, kind) {
+    const nm = (t) => (t.t === 'qid' ? t.val : t.t === 'id' ? t.v : null);
     const nameAt = (i) => {
-      let t = T[i];
+      const t = T[i];
       if (!t) return null;
-      if (T[i + 1] && T[i + 1].v === '.' && T[i + 2] && (T[i + 2].t === 'id' || T[i + 2].t === 'qid')) t = T[i + 2];
-      return t.t === 'qid' ? t.val : t.t === 'id' ? t.v : null;
+      if (T[i + 1] && T[i + 1].v === '.' && T[i + 2] && (T[i + 2].t === 'id' || T[i + 2].t === 'qid')) return { db: nm(t), name: nm(T[i + 2]) };
+      const n = nm(t);
+      return n == null ? null : { db: null, name: n };
     };
     if (kind === 'INSERT' || kind === 'REPLACE') {
       let i = 1;
@@ -1083,7 +1340,8 @@ export class Session {
   }
 
   /** INSERT INTO t SET a=1, b='x' → INSERT INTO t (a, b) VALUES (1, 'x') */
-  rewriteInsertSet(T, src, ctx, sqlText) {
+  rewriteInsertSet(T, src, ctx, sqlText, execCtx = ctx) {
+    const o = { execDb: execCtx?.name };
     const setIdx = T.findIndex((t, i) => i > 1 && t.t === 'id' && t.u === 'SET');
     if (setIdx < 0 || T.some((t) => t.t === 'id' && (t.u === 'VALUES' || t.u === 'SELECT'))) return sqlText;
     const cols = [];
@@ -1104,12 +1362,12 @@ export class Session {
         else if (depth === 0 && x.t === 'id' && x.u === 'ON') break;
         m++;
       }
-      vals.push(this.translate(T.slice(start, m).flatMap((x, i, arr) => (i ? [{ t: 'ws', v: ' ' }, x] : [x])), src, ctx).text);
+      vals.push(this.translate(T.slice(start, m).flatMap((x, i) => (i ? [{ t: 'ws', v: ' ' }, x] : [x])), src, ctx, o).text);
       k = m;
       if (T[k] && T[k].v === ',') { k++; continue; }
       break;
     }
-    const head = this.translate(T.slice(0, setIdx).flatMap((x, i) => (i ? [{ t: 'ws', v: ' ' }, x] : [x])), src, ctx).text;
+    const head = this.translate(T.slice(0, setIdx).flatMap((x, i) => (i ? [{ t: 'ws', v: ' ' }, x] : [x])), src, ctx, o).text;
     return `${head} (${cols.map(dq).join(', ')}) VALUES (${vals.join(', ')})`;
   }
 
@@ -1206,7 +1464,7 @@ export class Session {
     if (um) return new MySqlError(Number(um[1]), um[3], um[2]);
     const db = c.ctx?.name;
     let m;
-    const tbl = (n) => `${db ?? ''}.${lc(n)}`;
+      const tbl = (n) => (n.includes('.') ? lc(n).replace(/"/g, '') : `${db ?? ''}.${lc(n)}`);
     if ((m = /^no such table: (?:main\.)?(.+)$/.exec(msg))) {
       if (!db) return err(1046, 'No database selected');
       return err(1146, `Table '${tbl(m[1])}' doesn't exist`);
@@ -1495,7 +1753,7 @@ export class Session {
       return this.alterTableSpecs(ctx, q.name, [{ op: 'addIndex', unique, name, cols }]);
     }
     if (unique) throw p.syntax();
-    if (p.eat('TEMPORARY')) throw err(1235, 'TEMPORARY tablolar bu simülatörde desteklenmiyor.');
+    if (p.eat('TEMPORARY')) { p.expect('TABLE'); return this.createTable(p, true); }
     if (p.eat('TABLE')) return this.createTable(p);
     if (p.eat('USER')) return this.createUser(p);
     if (p.eat('OR', 'REPLACE')) {
@@ -1520,7 +1778,7 @@ export class Session {
     return o;
   }
 
-  createTable(p) {
+  createTable(p, temporary = false) {
     const ifNot = p.eat('IF', 'NOT', 'EXISTS');
     const q = p.qname();
     const ctx = this.ctx(q.db || this.db);
@@ -1563,14 +1821,46 @@ export class Session {
       p.i = p.toks.length;
     }
     p.end();
-    if (asSelect) throw err(1235, 'CREATE TABLE ... SELECT bu simülatörde desteklenmiyor.');
+    if (temporary) meta.temporary = this.id;
+    let sel = null;
+    if (asSelect) {
+      // CREATE TABLE ... SELECT: sütunlar sorgu sonucundan
+      const text = p.src.slice(asSelect[0].s, p.stmt.e);
+      const saveLimit = this.limitRows;
+      this.limitRows = 0;
+      try { sel = this.dml(text, { sql: text, s: 0, e: text.length, tokens: tokenize(text) }, 'SELECT'); } finally { this.limitRows = saveLimit; }
+      for (const c of sel.columns) {
+        if (meta.columns.some((x) => lc(x.name) === lc(c.name))) continue;
+        let col;
+        if (c.column) col = { name: c.name, type: c.type, len: c.len, scale: c.scale, unsigned: c.unsigned, zerofill: c.zerofill, values: c.values, notNull: c.notNull };
+        else {
+          const i = sel.columns.indexOf(c);
+          const max = Math.max(1, ...sel.rows.map((r) => (r[i] == null ? 0 : [...String(r[i])].length)));
+          col = c.type === 'bigint' ? { name: c.name, type: 'bigint' } : c.type === 'double' ? { name: c.name, type: 'double' } : c.type === 'blob' ? { name: c.name, type: 'longblob' } : { name: c.name, type: 'varchar', len: Math.max(max, 1) };
+        }
+        for (const k of Object.keys(col)) if (col[k] === undefined) delete col[k];
+        meta.columns.push(col);
+      }
+    }
     if (!meta.columns.length) throw err(1113, 'A table must have at least 1 column');
     this.finishMeta(ctx, meta);
     this.buildTable(ctx, meta);
     if (meta.autoIncStart > 1) this.setAutoInc(ctx, tname, meta.autoIncStart);
     delete meta.autoIncStart;
+    if (sel && sel.rows.length) {
+      const cols = sel.columns.map((c) => dq(c.name));
+      const ins = `INSERT INTO ${dq(tname)} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`;
+      try {
+        for (const r of sel.rows) ctx.sql.run(ins, r);
+      } catch (e) {
+        ctx.sql.run(`DROP TABLE ${dq(tname)}`);
+        delete ctx.meta.tables[tname];
+        throw this.mapError(e, { kind: 'INSERT', ctx, target: tname, toks: [], src: '' });
+      }
+    }
     this.saveMetaAndNotify(ctx);
-    return { affected: 0, schema: true, db: ctx.name };
+    const n = sel ? sel.rows.length : 0;
+    return { affected: n, schema: true, db: ctx.name, info: sel ? `Records: ${n}  Duplicates: 0  Warnings: 0` : undefined };
   }
 
   saveMetaAndNotify(ctx) {
@@ -2634,7 +2924,7 @@ export class Session {
       if (p.eat('FROM') || p.eat('IN')) dbName = p.name(true);
       const f = like();
       const ctx = this.ctx(dbName);
-      const names = [...Object.keys(ctx.meta.tables).map((n) => [n, 'BASE TABLE']), ...Object.keys(ctx.meta.views).map((n) => [n, 'VIEW'])].sort((a, b) => a[0].localeCompare(b[0])).filter((x) => f(x[0]));
+      const names = [...Object.keys(ctx.meta.tables).filter((n) => !ctx.meta.tables[n].temporary).map((n) => [n, 'BASE TABLE']), ...Object.keys(ctx.meta.views).map((n) => [n, 'VIEW'])].sort((a, b) => a[0].localeCompare(b[0])).filter((x) => f(x[0]));
       return this.rowsResult(full ? [`Tables_in_${ctx.name}`, 'Table_type'] : [`Tables_in_${ctx.name}`], names.map((x) => (full ? x : [x[0]])));
     }
     if (p.eat('COLUMNS') || p.eat('FIELDS')) {
@@ -2921,7 +3211,7 @@ export class Session {
     const ctx = this.ctx(dbName);
     const now = this.server.clock();
     const ver = this.server.version;
-    const tables = (opts.tables || Object.keys(ctx.meta.tables)).map(lc).filter((t) => ctx.meta.tables[t]).sort();
+    const tables = (opts.tables || Object.keys(ctx.meta.tables)).map(lc).filter((t) => ctx.meta.tables[t] && !ctx.meta.tables[t].temporary).sort();
     const out = [];
     out.push(`-- MySQL dump 10.13  Distrib ${ver}, for Win64 (x86_64)`, '--', `-- Host: 127.0.0.1    Database: ${ctx.name}`, '-- ------------------------------------------------------', `-- Server version\t${ver}`, '');
     out.push('/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;', '/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;', '/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;', '/*!50503 SET NAMES utf8 */;',

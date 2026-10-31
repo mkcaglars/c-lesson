@@ -289,10 +289,48 @@ namespace MySql.Data.MySqlClient
             connection.EnsureOpen();
             if (string.IsNullOrWhiteSpace(commandText)) throw new InvalidOperationException("The CommandText property has not been properly initialized.");
             string sql = commandText;
-            if (CommandType == CommandType.StoredProcedure) throw new MySqlException("Saklı yordamlar (stored procedure) bu simülatörde desteklenmiyor.", 1235);
+            List<(MySqlParameter p, string v)> outs = null;
+            if (CommandType == CommandType.StoredProcedure)
+            {
+                // Connector/NET gibi: parametreler yordam tanımındaki adlarla eşleştirilir, CALL komutu kurulur
+                var info = Bridge.Call("routine", new { id = connection.Id, name = commandText.Trim() });
+                var args = new List<string>();
+                var pre = new StringBuilder();
+                outs = new List<(MySqlParameter, string)>();
+                foreach (var pi in info.GetProperty("params").EnumerateArray())
+                {
+                    string pn = pi.GetProperty("name").GetString();
+                    string mode = pi.GetProperty("mode").GetString();
+                    var prm = parameters.Items.FirstOrDefault(x => MySqlParameterCollection.Norm(x.ParameterName) == pn.ToLowerInvariant());
+                    if (prm == null) throw new ArgumentException($"Parameter '{pn}' not found in the collection.");
+                    if (mode == "IN" && prm.Direction == ParameterDirection.Input) { args.Add("@" + MySqlParameterCollection.Norm(prm.ParameterName)); continue; }
+                    string v = "@_cnet_" + pn.ToLowerInvariant();
+                    if (mode == "INOUT" || prm.Direction == ParameterDirection.InputOutput) pre.Append($"SET {v} = @{MySqlParameterCollection.Norm(prm.ParameterName)}; ");
+                    args.Add(v);
+                    if (mode != "IN") outs.Add((prm, v));
+                }
+                sql = pre + "CALL " + info.GetProperty("name").GetString() + "(" + string.Join(", ", args) + ")";
+                if (outs.Count > 0) sql += "; SELECT " + string.Join(", ", outs.Select(o => o.v));
+            }
             if (CommandType == CommandType.TableDirect) sql = "SELECT * FROM " + sql;
             var ps = parameters.Items.Select(p => new { name = MySqlParameterCollection.Norm(p.ParameterName), kind = Kind(p.Value), value = Encode(p.Value) }).ToArray();
             var r = Bridge.Call("exec", new { id = connection.Id, sql, @params = ps });
+            if (outs != null && outs.Count > 0)
+            {
+                // son sonuç kümesi OUT parametre değerleri: parametrelere yaz ve sonuçlardan çıkar
+                var list = r.GetProperty("results").EnumerateArray().ToList();
+                var last = list[list.Count - 1];
+                var cols = MySqlDataReader.ReadColumns(last);
+                var vals = last.GetProperty("rows").EnumerateArray().First().EnumerateArray().ToList();
+                for (int i = 0; i < outs.Count; i++)
+                {
+                    object v = MySqlDataReader.Convert(vals[i], cols[i]);
+                    outs[i].p.Value = v ?? DBNull.Value;
+                }
+                var kept = list.Take(list.Count - 1).Where(x => !(x.TryGetProperty("affected", out _) && !x.TryGetProperty("rows", out _) && list.IndexOf(x) < list.Count - 2)).ToList();
+                var json = "{\"results\":[" + string.Join(",", kept.Select(x => x.GetRawText())) + "]}";
+                r = JsonDocument.Parse(json).RootElement.Clone();
+            }
             if (r.TryGetProperty("insertId", out var ins) && ins.ValueKind == JsonValueKind.Number) LastInsertedId = ins.GetInt64();
             else if (r.TryGetProperty("results", out var rs))
                 foreach (var x in rs.EnumerateArray())

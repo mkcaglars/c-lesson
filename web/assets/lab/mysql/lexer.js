@@ -204,6 +204,8 @@ export function splitStatements(src) {
     }
     cur.push(t);
   }
+  // betik sonu: bitmemiş komut (ör. BEGIN ... END tamamlanmadı) var mı?
+  out.pending = state.depth > 0 || cur.some((x) => x.t !== 'ws' && x.t !== 'cmt');
   flush(src.length);
   return out;
 }
