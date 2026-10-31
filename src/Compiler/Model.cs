@@ -18,6 +18,8 @@ namespace CLesson.Compiler
         [JsonPropertyName("files")] public List<ProjectFile> Files { get; set; } = new();
         /// <summary>Program çalışırken uygulama klasöründe bulunacak veri dosyaları (ör. okul.xml).</summary>
         [JsonPropertyName("dataFiles")] public List<ProjectFile> DataFiles { get; set; } = new();
+        /// <summary>Projeye eklenen başvurular / NuGet paketleri (ör. MySql.Data).</summary>
+        [JsonPropertyName("references")] public List<string> References { get; set; } = new();
 
         static readonly JsonSerializerOptions options = new() { PropertyNameCaseInsensitive = true };
 

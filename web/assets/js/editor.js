@@ -121,7 +121,7 @@ export class CodeEditor {
       const uri = this.monaco.Uri.parse('file:///' + encodeURIComponent(name));
       model = this.monaco.editor.getModel(uri);
       if (model) model.dispose();
-      model = this.monaco.editor.createModel(content, 'csharp', uri);
+      model = this.monaco.editor.createModel(content, /\.(config|xml)$/i.test(name) ? 'xml' : 'csharp', uri);
       model.updateOptions({ tabSize: 4, insertSpaces: true });
       model._fileName = name;
       model._readOnly = readOnly;

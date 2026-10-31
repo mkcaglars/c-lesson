@@ -454,3 +454,45 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; }
 .dist-editor .dist-list { max-height: 220px; overflow: auto; border: 1px solid var(--border, #e3e3e8); border-radius: 6px; padding: 6px 10px; margin: 6px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; }
 .dist-editor .dist-item { font-size: 13px; }
 .dist-editor textarea { width: 100%; box-sizing: border-box; }
+
+/* ------------------------------------------------------------------ Reference Manager / NuGet */
+.refm { display: flex; flex-direction: column; gap: 8px; min-height: 380px; }
+.refm-head { display: flex; align-items: center; gap: 8px; }
+.refm-head .input { width: 240px; }
+.refm-main { display: grid; grid-template-columns: 130px 1fr 200px; gap: 8px; height: 360px; }
+.refm-cats { border: 1px solid var(--border); border-radius: 6px; padding: 4px; }
+.refm-cat { padding: 4px 8px; border-radius: 4px; cursor: pointer; }
+.refm-cat.active { background: var(--primary-soft); color: var(--primary); font-weight: 600; }
+.refm-list { border: 1px solid var(--border); border-radius: 6px; overflow: auto; }
+.refm-row { display: flex; align-items: center; gap: 8px; padding: 3px 8px; cursor: pointer; }
+.refm-row:hover { background: #f1f4fa; }
+.refm-name { flex: 1; }
+.refm-ver { color: var(--muted); font-size: 12px; }
+.refm-empty { padding: 12px; white-space: normal; }
+.refm-info { border: 1px solid var(--border); border-radius: 6px; padding: 8px; white-space: pre-wrap; font-size: 12px; color: var(--muted); }
+.nu { display: flex; flex-direction: column; gap: 8px; }
+.nu-head { display: flex; align-items: center; gap: 10px; }
+.nu-head .input { width: 260px; }
+.nu-tabs { display: flex; gap: 14px; }
+.nu-tab { border: 0; background: transparent; font: inherit; font-size: 15px; cursor: pointer; padding: 4px 0; color: var(--muted); border-bottom: 2px solid transparent; }
+.nu-tab.active { color: var(--text); font-weight: 600; border-bottom-color: var(--primary); }
+.nu-main { display: grid; grid-template-columns: 1fr 360px; gap: 10px; height: 420px; }
+.nu-left { border: 1px solid var(--border); border-radius: 6px; overflow: auto; }
+.nu-item { display: flex; gap: 10px; padding: 8px 10px; cursor: pointer; border-bottom: 1px solid #f0f2f6; }
+.nu-item:hover { background: #f5f7fb; }
+.nu-item.active { background: var(--primary-soft); }
+.nu-ico { width: 32px; height: 32px; border-radius: 6px; background: #004880; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; flex: 0 0 auto; }
+.nu-ico.big { width: 40px; height: 40px; font-size: 18px; }
+.nu-text { flex: 1; min-width: 0; }
+.nu-ver { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.nu-check { color: var(--success); font-weight: 600; }
+.nu-right { border: 1px solid var(--border); border-radius: 6px; padding: 12px; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+.nu-title { display: flex; align-items: center; gap: 10px; font-size: 16px; }
+.nu-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.nu-desc p { margin: 4px 0; }
+.nu-warn { color: var(--danger); margin-top: 6px; }
+.nu-preview, .nu-lic { margin-top: 8px; padding: 8px; background: var(--panel-2); border-radius: 6px; }
+.ide-dropdown { position: fixed; z-index: 100000; background: #fff; border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); padding: 4px; display: flex; flex-direction: column; min-width: 230px; }
+.ide-dd-item { border: 0; background: transparent; text-align: left; padding: 7px 12px; border-radius: 5px; cursor: pointer; font: inherit; }
+.ide-dd-item:hover { background: var(--primary-soft); }
+.ide-dd-sep { height: 1px; background: var(--border); margin: 3px 6px; }

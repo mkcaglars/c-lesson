@@ -65,6 +65,7 @@ async function boot() {
   const store = new LabStore(SQL, user);
   try {
     await store.load();
+    store.enableSync();
   } catch (e) {
     setBoot('Laboratuvar verileri yüklenemedi: ' + e.message);
     return;

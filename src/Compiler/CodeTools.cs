@@ -130,7 +130,19 @@ namespace CLesson.Compiler
                 }
                 csproj.AppendLine("  </ItemGroup>");
             }
-            var copied = (project.DataFiles ?? new()).Where(f => !f.Name.EndsWith(".sql", StringComparison.OrdinalIgnoreCase)).ToList();
+            // NuGet paketleri (Add Reference / Manage NuGet Packages ile eklenenler)
+            var packages = new List<(string id, string version)>();
+            if ((project.References ?? new()).Any(r => r.Equals("MySql.Data", StringComparison.OrdinalIgnoreCase))) packages.Add(("MySql.Data", "8.0.33"));
+            if (project.Files.Any(f => f.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) && (f.Content ?? "").Contains("ConfigurationManager")))
+                packages.Add(("System.Configuration.ConfigurationManager", "8.0.0"));
+            if (packages.Count > 0)
+            {
+                csproj.AppendLine();
+                csproj.AppendLine("  <ItemGroup>");
+                foreach (var (id, version) in packages) csproj.AppendLine("    <PackageReference Include=\"" + id + "\" Version=\"" + version + "\" />");
+                csproj.AppendLine("  </ItemGroup>");
+            }
+            var copied = (project.DataFiles ?? new()).Where(f => !f.Name.EndsWith(".sql", StringComparison.OrdinalIgnoreCase) && !f.Name.Equals("App.config", StringComparison.OrdinalIgnoreCase)).ToList();
             if (copied.Count > 0)
             {
                 csproj.AppendLine();
@@ -194,7 +206,8 @@ namespace CLesson.Compiler
                     if (f.Name == ProjectCompiler.HiddenFileName) continue;
                     Add(f.Name, f.Content);
                 }
-                foreach (var f in project.DataFiles ?? new()) Add(f.Name, f.Content);
+                foreach (var f in project.DataFiles ?? new())
+                    if (!project.Files.Any(x => x.Name.Equals(f.Name, StringComparison.OrdinalIgnoreCase))) Add(f.Name, f.Content);
                 string db = (project.DataFiles ?? new()).Any() ?
                     "\r\nVeritabanı: Bu projede okul.mdf yerine kayıtlar " + string.Join(", ", copied.Select(f => f.Name)) + " dosyasında tutulur;\r\n" +
                     "veri kümesi (DataSet) sınıfları ...DataSet.Designer.cs dosyasındadır ve bu dosyayı okuyup yazar.\r\n" +

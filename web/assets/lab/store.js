@@ -59,9 +59,11 @@ export function defaultConnection(state) {
 }
 
 export class LabStore {
-  constructor(SQL, user) {
+  /** opts.mergeState: durum kaydedilirken sunucudaki güncel durum alınıp yalnızca MySQL kullanıcıları güncellenir (Stüdyo). */
+  constructor(SQL, user, opts = {}) {
     this.SQL = SQL;
     this.user = user;
+    this.mergeState = !!opts.mergeState;
     this.state = defaultState();
     this.server = new MySqlServer(SQL, {});
     this.dirtyDbs = new Set();
@@ -74,6 +76,37 @@ export class LabStore {
   }
 
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
+
+  /** Aynı tarayıcıdaki diğer sekmelerle (Stüdyo ↔ Laboratuvar) veritabanı değişikliklerini eşitler. */
+  enableSync() {
+    if (typeof BroadcastChannel === 'undefined' || this.channel) return;
+    this.instance = Math.random().toString(36).slice(2);
+    this.channel = new BroadcastChannel('csharp-ders-lab');
+    this.channel.onmessage = async (ev) => {
+      const m = ev.data;
+      if (!m || m.from === this.instance) return;
+      if (m.type === 'dbs') {
+        for (const name of m.deleted || []) if (this.server.hasDb(name) && !this.dirtyDbs.has(name)) this.server.dropDatabase(name);
+        for (const name of m.dbs || []) {
+          if (this.dirtyDbs.has(name)) continue;
+          try {
+            const d = await api.labDatabase(name);
+            this.server.loadDatabase(d.name, fromBase64(d.data));
+          } catch (e) { console.error(e); }
+        }
+        this.emit({ type: 'reload', dbs: m.dbs || [] });
+      } else if (m.type === 'state') {
+        try {
+          const r = await api.labState();
+          if (r.state) {
+            Object.assign(this.state.install, r.state.install || {});
+            if (r.state.server) this.server.importState(r.state.server);
+            this.emit({ type: 'reload', dbs: [] });
+          }
+        } catch (e) { console.error(e); }
+      }
+    };
+  }
   emit(ev) { for (const fn of this.listeners) { try { fn(ev); } catch (e) { console.error(e); } } }
 
   async load() {
@@ -145,9 +178,15 @@ export class LabStore {
       }
       if (st || dbs.length || del.length) {
         this.state.server = this.server.exportState();
-        await api.saveLabState(this.state, opts);
+        if (this.mergeState) {
+          const cur = (await api.labState()).state || this.state;
+          cur.server = this.state.server;
+          await api.saveLabState(cur, opts);
+        } else await api.saveLabState(this.state, opts);
+        if (st && this.channel) this.channel.postMessage({ type: 'state', from: this.instance });
       }
-      this.emit({ type: 'saved' });
+      this.emit({ type: 'saved', dbs, deleted: del });
+      if ((dbs.length || del.length) && this.channel) this.channel.postMessage({ type: 'dbs', dbs, deleted: del, from: this.instance });
     } catch (e) {
       for (const n of dbs) this.dirtyDbs.add(n);
       for (const n of del) this.deletedDbs.add(n);

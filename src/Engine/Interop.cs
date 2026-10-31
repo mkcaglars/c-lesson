@@ -122,6 +122,7 @@ namespace CLesson.Engine
         [JSImport("output", "ui")] internal static partial void Output(string text);
         [JSImport("error", "ui")] internal static partial void Error(string json);
         [JSImport("programEnded", "ui")] internal static partial void ProgramEnded(string reason);
+        [JSImport("sql", "ui")] internal static partial string Sql(string op, string json);
     }
 
     [SupportedOSPlatform("browser")]
@@ -137,5 +138,6 @@ namespace CLesson.Engine
         public void Output(string text) => Js.Output(text);
         public void Error(string json) => Js.Error(json);
         public void ProgramEnded(string reason) => Js.ProgramEnded(reason);
+        public string Sql(string op, string json) => Js.Sql(op, json);
     }
 }
