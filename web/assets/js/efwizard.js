@@ -132,36 +132,147 @@ ${entities.map((e) => `        public virtual DbSet<${ident(e.cls)}> ${ident(e.s
   return { files, entities };
 }
 
+function storeType(c) {
+  if (c.type === 'tinyint' && c.len === 1) return 'bool';
+  return c.type === 'integer' ? 'int' : c.type;
+}
+
+function csdlType(c, pk) {
+  const t = clrType(c, pk).replace(/^Nullable<(.*)>$/, '$1').replace('System.', '');
+  return { int: 'Int32', long: 'Int64', short: 'Int16', sbyte: 'SByte', byte: 'Byte', bool: 'Boolean', decimal: 'Decimal', double: 'Double', float: 'Single', DateTime: 'DateTime', TimeSpan: 'Time', 'byte[]': 'Binary', string: 'String' }[t] || 'String';
+}
+
+function facets(c, conceptual) {
+  let f = '';
+  if (['varchar', 'char'].includes(c.type) && c.len) f += ` MaxLength="${c.len}"`;
+  if (c.type === 'char' && conceptual) f += ' FixedLength="true"';
+  if (['varchar', 'char', 'text', 'tinytext', 'mediumtext', 'longtext', 'enum'].includes(c.type) && conceptual) f += ' Unicode="true"';
+  if (c.type === 'decimal') f += ` Precision="${c.len ?? 10}" Scale="${c.scale ?? 0}"`;
+  return f;
+}
+
+/** Visual Studio'nun ürettiği gibi tam .edmx: SSDL, CSDL, eşleme (MSL) ve ilişkiler */
 function edmxXml(model, entities) {
   const x = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+  const ns = model.ns;
+  const byTable = new Map(entities.map((e) => [e.table, e]));
+  // ilişkiler (yalnızca modeldeki tablolar arasında ve FK sütunları modelde ise)
+  const assocs = [];
+  const independent = model.fk === false; // FK sütunları modelde yok: bağımsız ilişki (AssociationSetMapping)
+  {
+    for (const e of entities) {
+      for (const f of e.meta.fks) {
+        const p = byTable.get(f.refTable.toLowerCase());
+        if (!p) continue;
+        const nullable = f.cols.some((c) => !e.meta.columns.find((x2) => x2.name.toLowerCase() === c.toLowerCase())?.notNull);
+        const pr = p.table;
+        const dr = e.table === p.table ? e.table + '1' : e.table;
+        const ref = e.refs.find((r) => r.fk === f);
+        const coll = p.colls.find((cc) => cc.fk === f);
+        assocs.push({ name: f.name, principal: p, dependent: e, pr, dr, f, mult: nullable ? '0..1' : '1', ref, coll });
+      }
+    }
+  }
   const ssdl = entities.map((e) => `        <EntityType Name="${x(e.table)}">
-          <Key>${e.meta.pk.map((p) => `<PropertyRef Name="${x(p)}" />`).join('')}</Key>
-${e.meta.columns.map((c) => `          <Property Name="${x(c.name)}" Type="${x(c.type)}" Nullable="${c.notNull ? 'false' : 'true'}"${c.autoInc ? ' StoreGeneratedPattern="Identity"' : ''} />`).join('\n')}
+          <Key>
+${e.meta.pk.map((p) => `            <PropertyRef Name="${x(p)}" />`).join('\n')}
+          </Key>
+${e.meta.columns.map((c) => `          <Property Name="${x(c.name)}" Type="${x(storeType(c))}"${facets(c, false)} Nullable="${c.notNull || e.meta.pk.includes(c.name) ? 'false' : 'true'}"${c.autoInc ? ' StoreGeneratedPattern="Identity"' : ''} />`).join('\n')}
         </EntityType>`).join('\n');
+  const assocXml = (a, conceptual) => `        <Association Name="${x(a.name)}">
+          <End Role="${x(a.pr)}" Type="${conceptual ? 'Self.' + x(a.principal.cls) : 'Self.' + x(a.principal.table)}" Multiplicity="${a.mult}" />
+          <End Role="${x(a.dr)}" Type="${conceptual ? 'Self.' + x(a.dependent.cls) : 'Self.' + x(a.dependent.table)}" Multiplicity="*" />${conceptual && independent ? '\n        </Association>' : `
+          <ReferentialConstraint>
+            <Principal Role="${x(a.pr)}">
+${a.f.refCols.map((c) => `              <PropertyRef Name="${x(c)}" />`).join('\n')}
+            </Principal>
+            <Dependent Role="${x(a.dr)}">
+${a.f.cols.map((c) => `              <PropertyRef Name="${x(c)}" />`).join('\n')}
+            </Dependent>
+          </ReferentialConstraint>
+        </Association>`}`;
   const csdl = entities.map((e) => `        <EntityType Name="${x(e.cls)}">
-          <Key>${e.meta.pk.map((p) => `<PropertyRef Name="${x(p)}" />`).join('')}</Key>
-${e.props.map((c) => `          <Property Name="${x(c.name)}" Type="${x(clrType(c, e.meta.pk.includes(c.name)).replace(/Nullable<|>/g, '').replace('System.', ''))}" />`).join('\n')}
+          <Key>
+${e.meta.pk.map((p) => `            <PropertyRef Name="${x(p)}" />`).join('\n')}
+          </Key>
+${e.props.map((c) => `          <Property Name="${x(c.name)}" Type="${csdlType(c, e.meta.pk.includes(c.name))}"${facets(c, true)} Nullable="${c.notNull || e.meta.pk.includes(c.name) ? 'false' : 'true'}"${c.autoInc ? ' annotation:StoreGeneratedPattern="Identity"' : ''} />`).join('\n')}
+${assocs.filter((a) => a.dependent === e && a.ref).map((a) => `          <NavigationProperty Name="${x(a.ref.name)}" Relationship="Self.${x(a.name)}" FromRole="${x(a.dr)}" ToRole="${x(a.pr)}" />`).join('\n')}
+${assocs.filter((a) => a.principal === e && a.coll).map((a) => `          <NavigationProperty Name="${x(a.coll.name)}" Relationship="Self.${x(a.name)}" FromRole="${x(a.pr)}" ToRole="${x(a.dr)}" />`).join('\n')}
         </EntityType>`).join('\n');
+  const msl = entities.map((e) => `          <EntitySetMapping Name="${x(e.set)}">
+            <EntityTypeMapping TypeName="${x(ns)}.${x(e.cls)}">
+              <MappingFragment StoreEntitySet="${x(e.table)}">
+${e.props.map((c) => `                <ScalarProperty Name="${x(c.name)}" ColumnName="${x(c.name)}" />`).join('\n')}
+              </MappingFragment>
+            </EntityTypeMapping>
+          </EntitySetMapping>`).join('\n');
   return `<?xml version="1.0" encoding="utf-8"?>
 <edmx:Edmx Version="3.0" xmlns:edmx="http://schemas.microsoft.com/ado/2009/11/edmx">
   <!-- EF Runtime content -->
   <edmx:Runtime>
     <!-- SSDL content -->
     <edmx:StorageModels>
-      <Schema Namespace="${x(model.ns)}.Store" Provider="MySql.Data.MySqlClient" ProviderManifestToken="8.0" Alias="Self" xmlns="http://schemas.microsoft.com/ado/2009/11/edm/ssdl">
+      <Schema Namespace="${x(ns)}.Store" Provider="MySql.Data.MySqlClient" ProviderManifestToken="8.0" Alias="Self" xmlns:store="http://schemas.microsoft.com/ado/2007/12/edm/EntityStoreSchemaGenerator" xmlns:customannotation="http://schemas.microsoft.com/ado/2013/11/edm/customannotation" xmlns="http://schemas.microsoft.com/ado/2009/11/edm/ssdl">
 ${ssdl}
+${assocs.map((a) => assocXml(a, false)).join('\n')}
+        <EntityContainer Name="${x(ns)}StoreContainer">
+${entities.map((e) => `          <EntitySet Name="${x(e.table)}" EntityType="Self.${x(e.table)}" Schema="${x(model.db)}" store:Type="Tables" />`).join('\n')}
+${assocs.map((a) => `          <AssociationSet Name="${x(a.name)}" Association="Self.${x(a.name)}">
+            <End Role="${x(a.pr)}" EntitySet="${x(a.principal.table)}" />
+            <End Role="${x(a.dr)}" EntitySet="${x(a.dependent.table)}" />
+          </AssociationSet>`).join('\n')}
+        </EntityContainer>
       </Schema>
     </edmx:StorageModels>
     <!-- CSDL content -->
     <edmx:ConceptualModels>
-      <Schema Namespace="${x(model.ns)}" Alias="Self" xmlns="http://schemas.microsoft.com/ado/2009/11/edm">
-        <EntityContainer Name="${x(model.container)}">
-${entities.map((e) => `          <EntitySet Name="${x(e.set)}" EntityType="${x(model.ns)}.${x(e.cls)}" />`).join('\n')}
-        </EntityContainer>
+      <Schema Namespace="${x(ns)}" Alias="Self" annotation:UseStrongSpatialTypes="false" xmlns:annotation="http://schemas.microsoft.com/ado/2009/02/edm/annotation" xmlns:customannotation="http://schemas.microsoft.com/ado/2013/11/edm/customannotation" xmlns="http://schemas.microsoft.com/ado/2009/11/edm">
 ${csdl}
+${assocs.map((a) => assocXml(a, true)).join('\n')}
+        <EntityContainer Name="${x(model.container)}" annotation:LazyLoadingEnabled="true">
+${entities.map((e) => `          <EntitySet Name="${x(e.set)}" EntityType="Self.${x(e.cls)}" />`).join('\n')}
+${assocs.map((a) => `          <AssociationSet Name="${x(a.name)}" Association="Self.${x(a.name)}">
+            <End Role="${x(a.pr)}" EntitySet="${x(a.principal.set)}" />
+            <End Role="${x(a.dr)}" EntitySet="${x(a.dependent.set)}" />
+          </AssociationSet>`).join('\n')}
+        </EntityContainer>
       </Schema>
     </edmx:ConceptualModels>
+    <!-- C-S mapping content -->
+    <edmx:Mappings>
+      <Mapping Space="C-S" xmlns="http://schemas.microsoft.com/ado/2009/11/mapping/cs">
+        <EntityContainerMapping StorageEntityContainer="${x(ns)}StoreContainer" CdmEntityContainer="${x(model.container)}">
+${msl}
+${independent ? assocs.map((a) => `          <AssociationSetMapping Name="${x(a.name)}" TypeName="${x(ns)}.${x(a.name)}" StoreEntitySet="${x(a.dependent.table)}">
+            <EndProperty Name="${x(a.pr)}">
+${a.f.refCols.map((c, i) => `              <ScalarProperty Name="${x(c)}" ColumnName="${x(a.f.cols[i])}" />`).join('\n')}
+            </EndProperty>
+            <EndProperty Name="${x(a.dr)}">
+${a.dependent.meta.pk.map((c) => `              <ScalarProperty Name="${x(c)}" ColumnName="${x(c)}" />`).join('\n')}
+            </EndProperty>
+          </AssociationSetMapping>`).join('\n') : ''}
+        </EntityContainerMapping>
+      </Mapping>
+    </edmx:Mappings>
   </edmx:Runtime>
+  <!-- EF Designer content (DO NOT EDIT MANUALLY BELOW HERE) -->
+  <Designer xmlns="http://schemas.microsoft.com/ado/2009/11/edmx">
+    <Connection>
+      <DesignerInfoPropertySet>
+        <DesignerProperty Name="MetadataArtifactProcessing" Value="EmbedInOutputAssembly" />
+      </DesignerInfoPropertySet>
+    </Connection>
+    <Options>
+      <DesignerInfoPropertySet>
+        <DesignerProperty Name="ValidateOnBuild" Value="true" />
+        <DesignerProperty Name="EnablePluralization" Value="${model.pluralize ? 'true' : 'false'}" />
+        <DesignerProperty Name="IncludeForeignKeysInModel" Value="${model.fk !== false ? 'true' : 'false'}" />
+        <DesignerProperty Name="UseLegacyProvider" Value="false" />
+        <DesignerProperty Name="CodeGenerationStrategy" Value="None" />
+      </DesignerInfoPropertySet>
+    </Options>
+    <Diagrams></Diagrams>
+  </Designer>
 </edmx:Edmx>
 `;
 }

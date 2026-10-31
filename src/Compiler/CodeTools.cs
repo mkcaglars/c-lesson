@@ -7,7 +7,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace CLesson.Compiler
 {
-    public static class CodeTools
+    public static partial class CodeTools
     {
         /// <summary>
         /// Form kod dosyasına (Form1.cs) olay metodu ekler. Metot zaten varsa dokunmaz.
@@ -96,6 +96,7 @@ namespace CLesson.Compiler
         /// <summary>Projeyi Visual Studio'da açılabilecek bir .zip dosyasına dönüştürür.</summary>
         public static byte[] ExportZip(ProjectInput project)
         {
+            if (string.Equals(project.ExportTarget, "net48", StringComparison.OrdinalIgnoreCase)) return ExportZipNet48(project);
             string safeName = SafeFileName(string.IsNullOrWhiteSpace(project.Name) ? "Proje" : project.Name);
             var sources = project.SourceFiles.ToList();
             var formFiles = sources.Where(f => sources.Any(d => d.Name == Path.GetFileNameWithoutExtension(f.Name) + ".Designer.cs")).ToList();

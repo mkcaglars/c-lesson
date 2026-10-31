@@ -20,6 +20,8 @@ namespace CLesson.Compiler
         [JsonPropertyName("dataFiles")] public List<ProjectFile> DataFiles { get; set; } = new();
         /// <summary>Projeye eklenen başvurular / NuGet paketleri (ör. MySql.Data).</summary>
         [JsonPropertyName("references")] public List<string> References { get; set; } = new();
+        /// <summary>ZIP biçimi: "net8" (SDK projesi) ya da "net48" (.NET Framework 4.8, kitaptaki Visual Studio düzeni).</summary>
+        [JsonPropertyName("exportTarget")] public string ExportTarget { get; set; } = "net8";
 
         static readonly JsonSerializerOptions options = new() { PropertyNameCaseInsensitive = true };
 

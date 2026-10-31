@@ -998,9 +998,40 @@ export class Ide {
   }
 
   async exportZip() {
+    const usesNetFx = this.allReferences().length > 0 || (this.data.efModels || []).length > 0 || !!this.data.setup;
+    let target = usesNetFx ? 'net48' : 'net8';
+    const opt = (id, title, desc) => {
+      const r = h('input', { type: 'radio', name: 'ziptarget', checked: target === id });
+      r.onchange = () => { target = id; };
+      return h('label', { class: 'zip-opt' }, r, h('div', {}, h('b', {}, title), h('div', { class: 'muted small' }, desc)));
+    };
+    const r = await modal({
+      title: 'Visual Studio projesi olarak indir',
+      width: 560,
+      body: h('div', { class: 'efw-col' },
+        opt('net48', '.NET Framework 4.8 (kitaptaki gibi)', 'Visual Studio 2019/2022 "Windows Forms App (.NET Framework)" projesi: App.config, References, NuGet paketleri (MySql.Data, EntityFramework), .edmx. Kitaptaki MySQL, Entity Framework ve Setup konuları için önerilir.'),
+        opt('net8', '.NET 8 (yeni)', 'Visual Studio 2022 17.13+ / VS 2026 için SDK biçiminde proje (.slnx). Entity Framework (.edmx) tasarımcısı bu biçimde çalışmaz.')),
+      buttons: [{ text: 'Vazgeç', value: null }, { text: 'İndir', value: 'ok', primary: true }],
+    });
+    if (r !== 'ok') return;
     try {
       const engine = await this.engine();
-      const bytes = engine.ExportZip(this.projectJson('zip'));
+      const pj = JSON.parse(this.projectJson('zip'));
+      pj.exportTarget = target;
+      // .edmx dosyalarını güncel (tam) biçimde yeniden üret
+      if ((this.data.efModels || []).length) {
+        try {
+          await ensureMysql(this.ctx.user);
+          for (const m of this.data.efModels) {
+            const edmx = generateModel(this, m).files.find((f) => f.name.endsWith('.edmx'));
+            const f = pj.files.find((x) => x.name === edmx.name);
+            if (f) f.content = edmx.content;
+          }
+        } catch (e) {
+          console.warn('edmx yeniden üretilemedi', e);
+        }
+      }
+      const bytes = engine.ExportZip(JSON.stringify(pj));
       download(`${asciiFileName(this.name)}.zip`, bytes, 'application/zip');
     } catch (e) {
       toast('ZIP oluşturulamadı: ' + e.message, 'error');

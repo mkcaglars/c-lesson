@@ -13,7 +13,7 @@ Derslerde kullanmak için web üzerinde çalışan bir **C# Windows Forms** geli
 - Çalışma hatalarında hangi satırda hata olduğu ve Türkçe ipucu gösterilir; sonsuz döngü ve sonsuz özyineleme yakalanır
 - Birden çok proje; her projede birden çok form ve sınıf
 - Otomatik kayıt; aynı proje iki yerde değiştirilirse uyarı verilir
-- Projeyi **Visual Studio projesi (.zip)** olarak indirme (net8.0-windows)
+- Projeyi **Visual Studio projesi (.zip)** olarak indirme: **.NET Framework 4.8** (kitaptaki VS 2019/2022 düzeni: App.config, References, NuGet paketleri, Entity Framework .edmx) ya da **.NET 8**
 - **Menü ve araç çubukları:** MenuStrip'e formda "Buraya yazın" ile öğe ekleme (VS adlandırması: `dosyaToolStripMenuItem`), öğeye çift tıklayınca `Click` metodu; ToolStrip, StatusStrip, ContextMenuStrip, kısayol tuşları
 - **DataGridView:** `Rows.Add`, `Cells["ad"].Value`, `SelectedRows`, `CellClick`, `IsNewRow`, satır renkleri, sıralama, hücre düzenleme; tasarımcıda sütun düzenleyicisi. Visual Studio'daki davranışlar korunur (`Rows.Count` en alttaki yeni satırı da sayar, yeni satır silinemez...)
 - **Dosya iletişim kutuları:** `OpenFileDialog` ile bilgisayardan dosya/resim seçme (`Image.FromFile(ofd.FileName)`), `SaveFileDialog` ile kaydedilen dosya "Çıktı" bölümünden indirilir
@@ -88,7 +88,7 @@ Belgeler:
 - `ShowDialog()`, `MessageBox.Show()` ve `InputBox` bir olay metodunun içindeyse WinForms'taki gibi bekler. `FormClosing` ve `KeyPress` gibi sonucun hemen gerektiği olaylarda tarayıcının kendi pencereleri kullanılır.
 - `Thread.Sleep` yerine `Timer` veya `await Task.Delay(...)` kullanılmalıdır.
 - Henüz desteklenmeyenler: çizim (`Graphics`, `Paint`), `ListView`, `TreeView`, gerçek SQL Server bağlantısı (`SqlConnection`), resim sütunları (Resim alanı laboratuvarda yapılır).
-- MySQL simülatöründe saklı yordam, tetikleyici, görünüm dışındaki nesneler ve veritabanları arası sorgular yoktur; EF'de gezinme (navigation) özellikleri üretilmez (LINQ `join` kullanılır).
+- MySQL simülatöründe saklı yordam, tetikleyici ve veritabanları arası sorgular yoktur.
 - Bilgisayardaki dosyalara doğrudan yol ile (`"C:\\resim.jpg"`) erişilemez; dosya `OpenFileDialog` ile seçilir. Seçilen ve kaydedilen dosyalar sanal `C:/Users/Ogrenci/Belgeler/` klasöründe durur.
 - ZIP'teki veritabanı projesi okul.mdf yerine `okul.xml` dosyasını kullanır (Visual Studio'da da çalışır); gerçek veritabanı için `okul.sql` betiği eklenir.
 - Güvenlik için yansıma (reflection), ağ ve işletim sistemi API'leri öğrenci kodunda kapalıdır.
