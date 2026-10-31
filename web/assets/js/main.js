@@ -40,7 +40,7 @@ function showLoginRequired(e) {
   app.innerHTML = '';
   app.appendChild(h('div', { class: 'center-page' },
     h('div', { class: 'card login-card' },
-      h('div', { class: 'brand big' }, h('span', { class: 'brand-logo' }, 'C#'), h('span', {}, 'Form Stüdyosu')),
+      h('div', { class: 'brand big' }, h('img', { class: 'brand-logo', src: 'assets/img/icon.svg', alt: '' }), h('span', {}, 'Form Stüdyosu')),
       h('h2', {}, e?.status === 401 ? 'Oturum açılmamış' : 'Sunucuya bağlanılamadı'),
       h('p', {}, e?.status === 401
         ? 'Bu uygulamaya okul portalındaki bağlantı ile giriş yapılır. Lütfen portal üzerinden tekrar girin.'

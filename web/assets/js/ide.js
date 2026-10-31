@@ -154,7 +154,7 @@ export class Ide {
     this.btnStop = h('button', { class: 'btn btn-stop hidden', title: 'Durdur (Shift+F5)', onclick: () => this.stop() }, '■ Durdur');
 
     const top = h('header', { class: 'ide-top' },
-      h('a', { class: 'brand', href: '#/', title: 'Projelerim' }, h('span', { class: 'brand-logo' }, 'C#')),
+      h('a', { class: 'brand', href: '#/', title: 'Projelerim' }, h('img', { class: 'brand-logo', src: 'assets/img/icon.svg', alt: '' })),
       h('div', { class: 'ide-project' }, this.titleEl, this.saveState),
       h('span', { class: 'ide-sep' }),
       this.btnRun, this.btnStop,
@@ -1208,7 +1208,7 @@ export class Ide {
       const desk = h('div', { class: 'run-desktop' });
       this.overlay = h('div', { class: 'run-overlay hidden' },
         h('div', { class: 'run-bar' },
-          h('span', { class: 'brand-logo' }, 'C#'),
+          h('img', { class: 'brand-logo', src: 'assets/img/icon.svg', alt: '' }),
           h('span', { class: 'run-title' }, this.name),
           this.runState,
           h('div', { class: 'spacer' }),

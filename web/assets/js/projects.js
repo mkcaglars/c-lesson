@@ -7,7 +7,7 @@ import { distributeDialog } from './teacher.js';
 export function topBar(ctx, active) {
   const u = ctx.user;
   return h('header', { class: 'topbar' },
-    h('a', { class: 'brand', href: '#/' }, h('span', { class: 'brand-logo' }, 'C#'), h('span', {}, 'Form Stüdyosu')),
+    h('a', { class: 'brand', href: '#/' }, h('img', { class: 'brand-logo', src: 'assets/img/icon.svg', alt: '' }), h('span', {}, 'Form Stüdyosu')),
     h('nav', { class: 'topnav' },
       h('a', { href: '#/', class: active === 'projects' ? 'active' : '' }, 'Projelerim'),
       u.role === 'ogretmen' ? h('a', { href: '#/ogretmen', class: active === 'teacher' ? 'active' : '' }, 'Öğretmen Paneli') : null,
