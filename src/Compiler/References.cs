@@ -10,7 +10,7 @@ namespace CLesson.Compiler
         static readonly Dictionary<string, MetadataReference> optional = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>Yalnızca projeye eklenince (Add Reference / NuGet) kullanılabilen derlemeler.</summary>
-        public static readonly string[] OptionalNames = { "MySql.Data" };
+        public static readonly string[] OptionalNames = { "MySql.Data", "EntityFramework" };
 
         /// <summary>Projenin başvurularına göre derleme referansları.</summary>
         public static IReadOnlyList<MetadataReference> For(IEnumerable<string> projectRefs)

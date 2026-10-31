@@ -14,6 +14,7 @@ import { DataEditor } from './dataeditor.js';
 import { generateDataSet, designerFileName, databaseXml, databaseSql, dataFileName, parseDatabaseXml } from './datasetgen.js';
 import { referenceManager, nugetManager, DEFAULT_REFS } from './packages.js';
 import { ensureMysql } from './mysqlbridge.js';
+import { addNewItem, renderEdmx, generateModel, efAppConfig } from './efwizard.js';
 
 const SAVE_DELAY = 1500;
 const CHECK_DELAY = 700;
@@ -282,6 +283,8 @@ export class Ide {
     const r = anchor.getBoundingClientRect();
     const item = (text, fn) => h('button', { class: 'ide-dd-item', onclick: () => { menu.remove(); fn(); } }, text);
     const menu = h('div', { class: 'ide-dropdown', style: { left: r.left + 'px', top: r.bottom + 2 + 'px' } },
+      item('Add New Item...', () => addNewItem(this)),
+      h('div', { class: 'ide-dd-sep' }),
       item('Add Reference...', () => this.addReferenceDialog()),
       item('Manage NuGet Packages...', () => nugetManager(this)),
       h('div', { class: 'ide-dd-sep' }),
@@ -405,7 +408,43 @@ export class Ide {
   }
 
   isGenerated(name) {
-    return /\.Designer\.cs$/i.test(name);
+    return /\.Designer\.cs$/i.test(name) || this.efGenerated().has(name);
+  }
+
+  /** Entity Framework modellerinin ürettiği (salt okunur) dosyalar */
+  efGenerated() {
+    return new Set((this.data?.efModels || []).flatMap((m) => m.generated || []));
+  }
+
+  openEdmx(name) {
+    const key = this.tabKey('edmx', name);
+    if (!this.tabs.find((t) => t.key === key)) this.tabs.push({ key, kind: 'edmx', name, title: `${name} [Diagram]` });
+    this.activate(key);
+  }
+
+  /** EF modelini (yeniden) üretir: Context + varlık sınıfları + .edmx + App.config */
+  applyEfModel(model) {
+    const { files } = generateModel(this, model);
+    this.data.efModels = (this.data.efModels || []).filter((m) => m.name !== model.name);
+    const old = new Set();
+    for (const m of [model]) for (const n of m.generated || []) old.add(n);
+    this.data.files = this.data.files.filter((f) => !old.has(f.name) && f.name !== `${model.name}.edmx`);
+    for (const n of old) { this.editor.removeFile(n); this.closeTab(this.tabKey('code', n)); }
+    model.generated = files.filter((f) => f.name.endsWith('.cs')).map((f) => f.name);
+    for (const f of files) {
+      this.data.files.push(f);
+      if (f.name.endsWith('.cs')) this.editor.setFile(f.name, f.content, { readOnly: true });
+    }
+    this.data.efModels.push(model);
+    // App.config
+    let cfg = this.data.files.find((f) => /^app\.config$/i.test(f.name));
+    if (!cfg) { cfg = { name: 'App.config', content: '' }; this.data.files.push(cfg); }
+    cfg.content = efAppConfig(cfg.content, model);
+    this.editor.setFile(cfg.name, cfg.content);
+    this.markDirty();
+    this.renderSolution();
+    this.scheduleCheck();
+    this.openEdmx(`${model.name}.edmx`);
   }
 
   formOfFile(name) {
@@ -459,13 +498,16 @@ export class Ide {
     this.docEmpty.classList.toggle('hidden', !!tab);
     this.docEditor.classList.toggle('hidden', tab?.kind !== 'code');
     this.docDesigner.classList.toggle('hidden', tab?.kind !== 'design');
-    this.docData.classList.toggle('hidden', tab?.kind !== 'data');
+    this.docData.classList.toggle('hidden', tab?.kind !== 'data' && tab?.kind !== 'edmx');
     this.toolbox.classList.toggle('disabled', tab?.kind !== 'design' || this.readonly);
     if (!tab) {
       this.props.clear();
       return;
     }
-    if (tab.kind === 'data') {
+    if (tab.kind === 'edmx') {
+      renderEdmx(this, tab.name, this.docData);
+      this.props.clear('Entity Data Model: tablolara karşılık gelen sınıflar. Değişiklik için "Update Model from Database".');
+    } else if (tab.kind === 'data') {
       this.dataEditor ??= new DataEditor(this);
       this.docData.innerHTML = '';
       this.docData.appendChild(this.dataEditor.el);
@@ -554,6 +596,12 @@ export class Ide {
       } else {
         const canDelete = !this.readonly && f.name !== 'Program.cs';
         const isConfig = /\.config$/i.test(f.name);
+        if (/\.edmx$/i.test(f.name)) {
+          const m = (this.data.efModels || []).find((x) => `${x.name}.edmx` === f.name);
+          item('tree-child', '\u{26C1}', f.name, { active: activeName === f.name, click: () => this.openEdmx(f.name), title: 'ADO.NET Entity Data Model (diyagram)', actions: this.readonly ? [] : [['✕', 'Modeli sil', () => this.deleteEfModel(m)]] });
+          for (const g of m?.generated || []) item('tree-child2', '\u{1F512}', g, { active: activeName === g, click: () => this.openCode(g), title: 'Şablondan üretilen kod (salt okunur; model güncellenince yeniden üretilir)' });
+          continue;
+        }
         if (this.data.database && f.name === designerFileName(this.data.database)) continue;
         item('tree-child', '\u{1F4C4}', f.name, {
           active: activeName === f.name,
@@ -794,8 +842,9 @@ export class Ide {
     return null;
   }
 
-  async addFormDialog() {
-    const name = await promptBox('Yeni Form', 'Form adı', this.uniqueFileBase('Form'), (v) => this.validateNewName(v));
+  async addFormDialog(preset) {
+    const presetOk = preset && !this.validateNewName(preset);
+    const name = presetOk ? preset : await promptBox('Yeni Form', 'Form adı', preset || this.uniqueFileBase('Form'), (v) => this.validateNewName(v));
     if (!name) return;
     addForm(this.data, name);
     for (const f of this.data.files) {
@@ -807,8 +856,10 @@ export class Ide {
     toast(`${name} eklendi. Açmak için: new ${name}().Show();`, 'success', 5000);
   }
 
-  async addClassDialog() {
-    const name = await promptBox('Yeni Sınıf', 'Sınıf adı', this.uniqueFileBase('Class'), (v) => this.validateNewName(v));
+  async addClassDialog(preset) {
+    const base = preset ? preset.replace(/\.cs$/i, '') : null;
+    const presetOk = base && !this.validateNewName(base);
+    const name = presetOk ? base : await promptBox('Yeni Sınıf', 'Sınıf adı', base || this.uniqueFileBase('Class'), (v) => this.validateNewName(v));
     if (!name) return;
     const f = { name: `${name}.cs`, content: classCs(this.data.namespace, name) };
     this.data.files.push(f);
@@ -830,6 +881,19 @@ export class Ide {
     this.closeTab(this.tabKey('design', form));
     this.renderSolution();
     this.markDirty();
+    this.scheduleCheck();
+  }
+
+  async deleteEfModel(m) {
+    if (!m) return;
+    if (!(await confirmBox('Modeli sil', `${m.name}.edmx ve ürettiği sınıflar silinecek. Emin misiniz?`, 'Sil', true))) return;
+    const names = new Set([...(m.generated || []), `${m.name}.edmx`]);
+    for (const n of names) { this.editor.removeFile(n); this.closeTab(this.tabKey('code', n)); }
+    this.closeTab(this.tabKey('edmx', `${m.name}.edmx`));
+    this.data.files = this.data.files.filter((f) => !names.has(f.name));
+    this.data.efModels = this.data.efModels.filter((x) => x !== m);
+    this.markDirty();
+    this.renderSolution();
     this.scheduleCheck();
   }
 

@@ -56,7 +56,7 @@ export function modal({ title, body, buttons = [{ text: 'Tamam', value: 'ok', pr
       if (e.key === 'Escape' && dismissable) { e.preventDefault(); close(null); }
     }
     for (const b of buttons) {
-      const btn = h('button', { class: 'btn ' + (b.primary ? 'btn-primary' : b.danger ? 'btn-danger' : '') }, b.text);
+      const btn = h('button', { class: 'btn ' + (b.primary ? 'btn-primary' : b.danger ? 'btn-danger' : ''), disabled: !!b.disabled }, b.text);
       btn.onclick = async () => {
         if (b.validate) {
           const ok = await b.validate();
